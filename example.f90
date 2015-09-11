@@ -24,10 +24,10 @@ program ex
 
   integer,parameter :: n=10
 
-  real,dimension(:,:,:),allocatable :: a
+  real,dimension(:,:,:),allocatable :: a,b
   integer ierr,rank,right,left,mpisize,i,j,k
 
-  type(halo) :: h(2)
+  type(halo) :: h(10,2)
   type(decomposition) :: d
   call MPI_Init(ierr)
   call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
@@ -41,22 +41,46 @@ program ex
   allocate(a(0:n+1,5,6))
   a=rank
 
-  write(*,'(a,i3,a,10f13.3)')'BEFORE Rank',rank,' data=',a(:,1,1)
+  write(*,'(a,i3,a,12f13.3)')'BEFORE Rank',rank,' data=',a(:,1,1)
 
-  print*,'Define halos..'
-  call h(1)%subarray(a,(/n,1,1/),(/n,5,6/))
-  call h(2)%subarray(a,(/0,1,1/),(/0,5,6/))
+  print*,'Define subarray halos..'
+  call h(1,1)%subarray(a,(/n,1,1/),(/n,5,6/))
+  call h(1,2)%subarray(a,(/0,1,1/),(/0,5,6/))
+  call h(2,1)%subarray(a,(/n-1,1,1/),(/n-1,1,1/))
+  call h(2,2)%subarray(a,(/1,1,1/),(/1,1,1/))
+  print*,'Define combined halos..'
+  call h(3,1)%combined(h(1:2,1))
+  call h(3,2)%combined(h(1:2,2))
 
-  print*,'Define decomposition..'
+  print*,'Initialize decomposition..'
   call d%init(1,1,MPI_COMM_WORLD)
-  call d%add_send(right,h(1))
-  call d%add_recv(left,h(2))
+  print*,'Add send..'
+  call d%add_send(right,h(3,1))
+  print*,'Add recv..'
+  call d%add_recv(left,h(3,2))
+  print*,'Create decomposition..'
   call d%create
+
+  print*,'Check to see if validity check works'
+  print*,'Result should be NOT valid'
+  if (h(3,1)%is_valid_halo(b)) then
+    print*,' Valid'
+  else
+    print*,'NOT valid'
+  endif
+
+  print*,'Update decomposition..'
+  print*,'Result should be valid'
+  if (h(3,1)%is_valid_halo(a)) then
+    print*,' Valid'
+  else
+    print*,'NOT valid'
+  endif
 
   print*,'Update decomposition..'
   call d%update(a,a)
 
-  write(*,'(a,i3,a,10f13.3)')'AFTER  Rank',rank,' data=',a(:,1,1)
+  write(*,'(a,i3,a,12f13.3)')'AFTER  Rank',rank,' data=',a(:,1,1)
   deallocate(a)
 
   call MPI_Finalize(ierr)

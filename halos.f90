@@ -8,21 +8,28 @@ module halos
 
       private
 
+!      logical, parameter :: debug=.true.
+!      logical, parameter :: check=.true.
+!      integer, parameter :: verbose=1
+      logical, parameter :: debug=.false.
+      logical, parameter :: check=.true.
+      integer, parameter :: verbose=1
+
 !> Class to define halos
       type, public :: halo
-        private
         integer, private :: m                         !< MPI type
-        logical :: initialized = .false.              !< is m a valid MPI type?
+        logical, private :: initialized = .false.              !< is m a valid MPI type?
         class(halo), pointer, private :: i            !< pointer to extended halo type for verification (boundary checking)
         contains
-          procedure :: mpitype                        !< Return the MPI type
-          procedure :: copy_halo                      !< Copy a halo
+          procedure, public :: mpitype                        !< Return the MPI type
+          procedure, private :: copy_halo                      !< Copy a halo
           generic :: assignment(=) => copy_halo       !< Define assignment of a halo
           procedure :: combined => create_combined                !< Combine different halos of the same variable
           procedure :: joined => create_joined                  !< Combine the same halo of different variables
           procedure :: subarray => create_subarray                !< Create a subarray type
-          procedure :: is_halo_valid                  !< Verify a halo (check bounds)
+          procedure :: is_valid_halo => check_halo                 !< Verify a halo (check bounds)
           final :: finalize_halo                      !< Finalize a halo
+          procedure :: print => print_halo
       end type halo
 
 !> Type to describe subarrays
@@ -34,6 +41,9 @@ module halos
         integer,dimension(:),allocatable :: sizes              !< sizes of array
         integer,dimension(:),allocatable :: subsizes           !< sizes of subarray
         integer,dimension(:),allocatable :: starts             !< starting indexes of subarray
+        contains
+          procedure :: is_valid_halo => check_subarray
+          procedure :: print => print_subarray
       end type
 
       interface subarray
@@ -41,9 +51,11 @@ module halos
       end interface
 
 !> Type to join multiple halos of the same variable
-      type, extends(halo) :: combined(n)
-        integer,len :: n                              !< number of halos
-        type(halo),dimension(n) :: halos              !< array of halos in combined array
+      type, extends(halo) :: combined
+        integer :: n                              !< number of halos
+        type(halo),dimension(:),allocatable :: halos              !< array of halos in combined array
+        contains
+          procedure :: is_valid_halo => check_combined
       end type
 
       interface combined
@@ -165,6 +177,7 @@ module halos
 ! note that the mpitype is stored in the halo type that points to the subarray type, NOT in the subarray type.
         end select ! sub => h%i
         call MPI_Type_commit(self%m,mpierr)
+        self%initialized=.true.
       end subroutine create_subarray
 
 !> Create type to combine different halos.
@@ -175,7 +188,6 @@ module halos
         class(halo)              :: self
         type(halo),dimension(:)  :: halos
 
-        type(halo)               :: h
         integer                  :: i,sz,mpierr
         integer,allocatable,dimension(:) :: hh,ones
         integer(kind=MPI_ADDRESS_KIND),allocatable,dimension(:) :: zeroes
@@ -188,28 +200,26 @@ module halos
         endif
 
 ! allocate subarray halo type
-        allocate(combined(sz) :: h%i)
-
-        allocate(hh(sz),ones(sz),zeroes(sz))
-        do i=1,sz
-          hh(i)=halos(i)%m
-        enddo
-        ones=1
-        zeroes=0_MPI_ADDRESS_KIND
-     
-        select type(sub => h%i)
+        allocate(combined :: self%i)
+        select type (c=> self%i)
         type is (combined)
-! initialize type
-          sub%halos=halos
-        end select ! sub => h%i
+          c%n=sz
+          allocate(c%halos(sz))
+          allocate(hh(sz),ones(sz),zeroes(sz))
+          do i=1,sz
+            hh(i)=halos(i)%m
+          enddo
+          ones=1
+          zeroes=0_MPI_ADDRESS_KIND
+          c%halos=halos
+        end select
 
 ! create type
-          call MPI_Type_create_struct(sz,ones,zeroes,hh,h%m,mpierr)
+          call MPI_Type_create_struct(sz,ones,zeroes,hh,self%m,mpierr)
 ! note that the mpitype is stored in the halo type that points to the subarray type, NOT in the subarray type.
-        call MPI_Type_commit(h%m,mpierr)
-
+        call MPI_Type_commit(self%m,mpierr)
+        self%initialized=.true.
         deallocate(hh)
-        self=h
       end subroutine create_combined
 
 !> Create type to join the same halo of multiple variables.
@@ -244,13 +254,44 @@ module halos
       end subroutine create_joined
 
 !> check validity of a halo for a variable
-      logical function is_halo_valid(self,v)
-        class(halo) :: self
-        real,dimension(:,:,:),allocatable :: v
+      logical function check_halo(self,v)
+        class(halo),intent(in) :: self
+        real,dimension(:,:,:),allocatable,intent(in) :: v
 
-        is_halo_valid=.true.
+        if(debug)print*,'check_halo'
 
-      end function is_halo_valid
+        check_halo=.false.
+        select type(h=>self%i)
+        type is (subarray)
+          check_halo=h%is_valid_halo(v)
+        type is (combined)
+          check_halo=h%is_valid_halo(v)
+        class default
+          if (h%initialized) check_halo=.true.
+        end select
+
+      end function check_halo
+
+      subroutine print_halo(self)
+        class(halo),intent(in) :: self
+
+        if(debug)print*,'print_halo'
+        select type(h=>self%i)
+        type is (subarray)
+          call h%print
+        class default
+          if (h%initialized) print*,'is initialized. mpitype=',h%m
+        end select
+
+      end subroutine print_halo
+
+      subroutine print_subarray(self)
+        class(subarray),intent(in) :: self
+
+        if(debug)print*,'print_subarray'
+        print*,'ndim=',self%ndim
+
+      end subroutine print_subarray
 
 
 !> add a variable to a joined halo type
@@ -264,7 +305,7 @@ module halos
 
       select type(j=>self%i)
       type is (joined)
-        if (.not.j%is_halo_valid(v)) then
+        if (.not.j%is_valid_halo(v)) then
           print*,"Halo is not valid for variable" 
           call MPI_Abort(MPI_COMM_WORLD,11,mpierr) 
         endif        
@@ -305,9 +346,11 @@ module halos
 
         integer mpierr
 
-!        call finalize_halo(hout)
-        call MPI_Type_dup(hin%m,hout%m,mpierr)
-        allocate(hout%i,source=hin%i)
+        if(debug)print*,'copy_halo ',hin%initialized
+        if (hin%initialized) then
+          call MPI_Type_dup(hin%m,hout%m,mpierr)
+          allocate(hout%i,source=hin%i)
+        endif
       end subroutine copy_halo
 
       subroutine init_decomposition_(d,sends,recvs,comm)
@@ -416,43 +459,87 @@ module halos
       class(decomposition), intent(in)                    :: self
 
       integer mpierr,status(MPI_STATUS_SIZE)
+      integer i
 
+      if(debug)print*,'update_decomposition'
+      if (check) then
+        do i=1,self%sends
+          if(debug)print*,'i=',i
+          if (.not.self%sendhalos(i)%is_valid_halo(vsend)) then
+            print*,'Not valid '
+            call MPI_Abort(MPI_COMM_WORLD,33,mpierr)
+          endif 
+        enddo
+        do i=1,self%recvs
+          if (.not.self%recvhalos(i)%is_valid_halo(vrecv)) then
+            print*,'Not valid '
+            call MPI_Abort(MPI_COMM_WORLD,34,mpierr)
+          endif 
+        enddo
+      endif
+      
       call MPI_Neighbor_alltoallw(vsend,self%sendcnts,self%senddispls,self%sendhalos%m, &
      &  vrecv,self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
                    
       end subroutine update_decomposition_
                                                                         
-      subroutine check_subarray(self,v)
+      logical function check_subarray(self,v)
         use mpi 
         integer, parameter           :: ndim=3
                                                                         
-        type(subarray), intent(in)                         :: self
+        class(subarray), intent(in)                         :: self
         real, dimension(:,:,:), allocatable, intent(in)    :: v 
                                                                         
       integer ierr,status(MPI_STATUS_SIZE) 
                                                           ! bounds for s
       integer lb(ndim),ub(ndim)
-                  
-      ierr=0                                                      
-                                                                
+       
+      if (debug) print*,'check_subarray'           
+      ierr=.true.      
+                                                           
       lb=lbound(v) 
       ub=ubound(v) 
                                                                         
 !check bounds of array                                             
       if (.not.(all(lb.eq.self%lb))) then 
-         print*,"Lower bounds of array not as assumed.." 
-         ierr=1 
+         if (verbose.gt.0)print*,"Lower bounds of array not as assumed.." 
+         if (verbose.gt.0)print*,"Found:    lb=",lb 
+         if (verbose.gt.0)print*,"Expected: lb=",self%lb 
+         ierr=.false.
       endif 
       if (.not.(all(ub.eq.self%ub))) then 
-         print*,"Upper bounds of array not as assumed.."
-         ierr=1 
+         if (verbose.gt.0)print*,"Upper bounds of array not as assumed.."
+         if (verbose.gt.0)print*,"Found:    ub=",ub 
+         if (verbose.gt.0)print*,"Expected: ub=",self%ub 
+         ierr=.false. 
       endif 
-      if (ierr.eq.1) then
-        flush(6)
-        call MPI_Abort(MPI_COMM_WORLD,10,ierr) 
-      endif
+!      if (ierr.eq.1) then
+!        flush(6)
+!        call MPI_Abort(MPI_COMM_WORLD,10,ierr) 
+!      endif
+
+        check_subarray=ierr
+      end function check_subarray
+
+      logical function check_combined(self,v)
+        use mpi 
+        integer, parameter           :: ndim=3
                                                                         
-      end subroutine check_subarray
+        class(combined), intent(in)                         :: self
+        real, dimension(:,:,:), allocatable, intent(in)    :: v 
+                                                                        
+      integer i,ierr,status(MPI_STATUS_SIZE) 
+                                                          ! bounds for s
+      if (debug) print*,'check_combined'
+      ierr=.true.      
+
+      if (debug) print*,'n=',self%n                                                          
+      do i=1,self%n
+        if(.not.self%halos(i)%is_valid_halo(v)) ierr=.false.
+      enddo
+
+        check_combined=ierr
+      end function check_combined
                                                                         
       subroutine create_joined_halo(self) 
         use mpi 
