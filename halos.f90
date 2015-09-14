@@ -423,12 +423,13 @@ module halos
 !! @relates halos::decomposition
       subroutine update_decomposition_(self,vsend,vrecv)
       use mpi
-      use iso_c_binding, only : c_loc
+      use iso_c_binding, only : c_loc,c_f_pointer
 
       real, dimension(..), allocatable, target, intent(in)    :: vsend
       real, dimension(..), allocatable, target, intent(inout) :: vrecv
       class(decomposition), intent(in)                    :: self
 
+      real,dimension(:),pointer :: psend,precv
       integer mpierr,status(MPI_STATUS_SIZE)
       integer i
 
@@ -449,8 +450,10 @@ module halos
         enddo
       endif
       
-      call MPI_Neighbor_alltoallw(c_loc(vsend),self%sendcnts,self%senddispls,self%sendhalos%m, &
-     &  c_loc(vrecv),self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
+      call c_f_pointer(c_loc(vsend),psend,(/size(vsend)/))
+      call c_f_pointer(c_loc(vrecv),precv,(/size(vrecv)/))
+      call MPI_Neighbor_alltoallw(psend,self%sendcnts,self%senddispls,self%sendhalos%m, &
+     &  precv,self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
                    
       end subroutine update_decomposition_
 
