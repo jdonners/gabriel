@@ -55,11 +55,11 @@ module halos
       end type
 
 !> Type to join the same halo of multiple variables
-      type, extends(halo) :: joined(length)
-        integer,len :: length                                  !< max number of variables
+      type, extends(halo) :: joined
+        integer     :: length                                  !< max number of variables
         integer     :: n = 0                                   !< actual number of variables
         type(halo)  :: h                                       !< halo for each variable
-        integer(MPI_ADDRESS_KIND),dimension(length) :: variables !< multiple variables
+        integer(MPI_ADDRESS_KIND),dimension(:),allocatable :: variables !< multiple variables
       end type
 
 !> Type to define decomposition
@@ -236,7 +236,11 @@ module halos
         endif
 
 ! allocate subarray halo type
-        allocate(joined(n) :: h%i)
+        allocate(joined :: h%i)
+        select type (j=>h%i)
+        type is (joined)
+          allocate(j%variables(n))
+        end select
 
 ! create type
 !          call MPI_Type_create_struct(sz,ones,zeroes,hh,h%m)
