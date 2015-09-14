@@ -1,15 +1,4 @@
-function string_and_integer(s,i)
-  character(*) :: s
-  integer i
-  string_and_integer="a"
-end function
-function integer_and_string(i,s)
-  character(*) :: s
-  integer i
-  integer_and_string="b"
-end function
-
-program ex
+program ex1d
 
   use halos
   use MPI
