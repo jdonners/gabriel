@@ -42,7 +42,7 @@ module halos
         integer,dimension(:),allocatable :: subsizes           !< sizes of subarray
         integer,dimension(:),allocatable :: starts             !< starting indexes of subarray
         contains
-          procedure :: is_valid_halo => check_subarray         !< Verify a subarray
+          procedure, private :: is_valid_halo => check_subarray         !< Verify a subarray
           procedure :: print => print_subarray                 !< print a subarray
       end type
 
@@ -92,6 +92,7 @@ module halos
       contains 
 
 !> Function to return the MPI type
+!! @relates halos::halo
       function mpitype(self)
         class(halo), intent(in) :: self
         integer :: mpitype
@@ -100,7 +101,8 @@ module halos
       end function mpitype
 
 !> Create type to combine different halos.
-!! This is usually used to communicate different parts of the same variable
+!! This is used to communicate a subarray of a larger array
+!! @relates halos::halo
       subroutine create_subarray(self,array,starts,stops,subsizes)
         use mpi
         integer, parameter           :: ndim=3
@@ -177,6 +179,7 @@ module halos
 
 !> Create type to combine different halos.
 !! This is usually used to communicate different parts of the same variable
+!! @relates halos::halo
       subroutine create_combined(self,halos)
         use mpi
 
@@ -220,6 +223,7 @@ module halos
 !> Create type to join the same halo of multiple variables.
 !! This is usually used to communicate the same part of different variables.
 !! @param n number of variables to communicate the halos
+!! @relates halos::halo
 ! The resulting halo is based on absolute addresses, so it will be communicated
 ! with MPI_BOTTOM as both sending and receiving buffers.
       subroutine create_joined(self,n)
@@ -249,6 +253,7 @@ module halos
       end subroutine create_joined
 
 !> check validity of a halo for a variable
+!! @relates halos::halo
       logical function check_halo(self,v)
         class(halo),intent(in) :: self
         real,dimension(:,:,:),allocatable,intent(in) :: v
@@ -268,6 +273,7 @@ module halos
       end function check_halo
 
       subroutine print_halo(self)
+!! @relates halos::halo
         class(halo),intent(in) :: self
 
         if(debug)print*,'print_halo'
