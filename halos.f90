@@ -96,14 +96,14 @@ module halos
 !! @relates halos::halo
       subroutine create_subarray(self,array,starts,stops,subsizes)
         use mpi
-        integer, parameter           :: ndim=3
 
-        class(halo)                                                :: self
-        real, intent(in), dimension(:,:,:), allocatable            :: array
-        integer, intent(in), dimension(ndim)                       :: starts
-        integer, intent(in), dimension(ndim), optional             :: stops,subsizes
+        class(halo)                                             :: self
+        real, intent(in), dimension(..), allocatable            :: array
+        integer, intent(in), dimension(:)                       :: starts
+        integer, intent(in), dimension(:), optional             :: stops,subsizes
 
         integer                 :: mpierr
+        integer           :: ndim
 
 ! check arguments
         if (present(stops).and.present(subsizes)) then
@@ -114,6 +114,7 @@ module halos
           call MPI_Abort(MPI_COMM_WORLD,5,mpierr)
         endif
 
+        ndim=rank(array)
 
 ! allocate subarray halo type
         allocate(subarray :: self%i)
@@ -121,6 +122,7 @@ module halos
         select type(sub => self%i)
         type is (subarray)
 ! initialize type
+          sub%ndim=ndim
           allocate(sub%lb(ndim))
           allocate(sub%ub(ndim))
           allocate(sub%sizes(ndim))
@@ -418,8 +420,8 @@ module halos
       subroutine update_decomposition_(self,vsend,vrecv)
       use mpi
 
-      real, dimension(:,:,:), allocatable, intent(in)    :: vsend
-      real, dimension(:,:,:), allocatable, intent(inout) :: vrecv
+      real, dimension(..), allocatable, intent(in)    :: vsend
+      real, dimension(..), allocatable, intent(inout) :: vrecv
       class(decomposition), intent(in)                    :: self
 
       integer mpierr,status(MPI_STATUS_SIZE)
@@ -486,22 +488,34 @@ module halos
       function check_subarray(self,v)
         use mpi 
         logical :: check_subarray
-        integer, parameter           :: ndim=3
                                                                         
-        class(subarray), intent(in)                         :: self
-        real, dimension(:,:,:), allocatable, intent(in)    :: v 
+        class(subarray), intent(in)                     :: self
+        real, dimension(..), allocatable, intent(in)    :: v 
                                                                         
+      integer           :: ndim
       integer ierr,status(MPI_STATUS_SIZE) 
                                                           ! bounds for s
-      integer lb(ndim),ub(ndim)
+      integer,dimension(:),allocatable :: lb,ub
        
       if (debug) print*,'check_subarray'           
       ierr=.true.      
                                                            
-      lb=lbound(v) 
-      ub=ubound(v) 
-                                                                        
-!check bounds of array                                             
+      ndim=rank(v)
+
+!check rank of array
+      if (.not.(ndim.eq.self%ndim)) then
+         if (verbose.gt.0)print*,"Rank of array not as assumed.." 
+         if (verbose.gt.0)print*,"Found:    rank=",ndim
+         if (verbose.gt.0)print*,"Expected: rank=",self%ndim
+         ierr=.false.
+         return
+      endif 
+
+      allocate(lb(ndim),ub(ndim))
+      lb=lbound(v)
+      ub=ubound(v)
+
+!check bounds of array
       if (.not.(all(lb.eq.self%lb))) then 
          if (verbose.gt.0)print*,"Lower bounds of array not as assumed.." 
          if (verbose.gt.0)print*,"Found:    lb=",lb 
@@ -530,7 +544,7 @@ module halos
         integer, parameter           :: ndim=3
                                                                         
         class(combined), intent(in)                         :: self
-        real, dimension(:,:,:), allocatable, intent(in)    :: v 
+        real, dimension(..), allocatable, intent(in)    :: v 
                                                                         
       integer i,ierr,status(MPI_STATUS_SIZE) 
                                                           ! bounds for s
@@ -568,7 +582,7 @@ module halos
       function check_halo(self,v)
         logical :: check_halo
         class(halo),intent(in) :: self
-        real,dimension(:,:,:),allocatable,intent(in) :: v
+        real,dimension(..),allocatable,intent(in) :: v
 
         if(debug)print*,'check_halo'
 
