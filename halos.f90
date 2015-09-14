@@ -42,7 +42,7 @@ module halos
         integer,dimension(:),allocatable :: subsizes           !< sizes of subarray
         integer,dimension(:),allocatable :: starts             !< starting indexes of subarray
         contains
-          procedure, private :: is_valid_halo => check_subarray         !< Verify a subarray
+          procedure :: is_valid_halo => check_subarray         !< Verify a subarray
           procedure :: print => print_subarray                 !< print a subarray
       end type
 
@@ -423,9 +423,10 @@ module halos
 !! @relates halos::decomposition
       subroutine update_decomposition_(self,vsend,vrecv)
       use mpi
+      use iso_c_binding, only : c_loc
 
-      real, dimension(..), allocatable, intent(in)    :: vsend
-      real, dimension(..), allocatable, intent(inout) :: vrecv
+      real, dimension(..), allocatable, target, intent(in)    :: vsend
+      real, dimension(..), allocatable, target, intent(inout) :: vrecv
       class(decomposition), intent(in)                    :: self
 
       integer mpierr,status(MPI_STATUS_SIZE)
@@ -448,8 +449,8 @@ module halos
         enddo
       endif
       
-      call MPI_Neighbor_alltoallw(vsend,self%sendcnts,self%senddispls,self%sendhalos%m, &
-     &  vrecv,self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
+      call MPI_Neighbor_alltoallw(c_loc(vsend),self%sendcnts,self%senddispls,self%sendhalos%m, &
+     &  c_loc(vrecv),self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
                    
       end subroutine update_decomposition_
 
@@ -497,8 +498,9 @@ module halos
         real, dimension(..), allocatable, intent(in)    :: v 
                                                                         
       integer           :: ndim
-      integer ierr,status(MPI_STATUS_SIZE) 
-                                                          ! bounds for s
+      integer status(MPI_STATUS_SIZE) 
+      logical ierr
+
       integer,dimension(:),allocatable :: lb,ub
        
       if (debug) print*,'check_subarray'           
@@ -550,7 +552,8 @@ module halos
         class(combined), intent(in)                         :: self
         real, dimension(..), allocatable, intent(in)    :: v 
                                                                         
-      integer i,ierr,status(MPI_STATUS_SIZE) 
+      integer i,status(MPI_STATUS_SIZE) 
+      logical ierr
                                                           ! bounds for s
       if (debug) print*,'check_combined'
       ierr=.true.      
