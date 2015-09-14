@@ -1,7 +1,8 @@
 FC=mpiifort
-FCFLAGS=-O0 -g -traceback -assume nobuffered_io
+FCFLAGS=-O0 -g -traceback -stand f15
+EXAMPLES=example example1d
 
-examples: example example1d
+examples: ${EXAMPLES}
 
 example: example.f90 halos.o
 	${FC} ${FCFLAGS} -o $@ $< halos.o
@@ -13,4 +14,4 @@ halos.o: halos.f90
 	${FC} ${FCFLAGS} -c $<
 
 clean:
-	rm example halos.o
+	rm ${EXAMPLES} halos.o

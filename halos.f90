@@ -1,7 +1,7 @@
 !***********************************************************************
 module halos
 !***********************************************************************
-! contains info for the message passaging                               
+! contains info for the message passing
 !-----------------------------------------------------------------------
       use mpi, only : MPI_ADDRESS_KIND
       implicit none 
@@ -78,7 +78,7 @@ module halos
         integer,allocatable,dimension(:) :: sendweights !< weight of sends 
         integer,allocatable,dimension(:) :: recvweights !< weight of recvs
         integer(MPI_ADDRESS_KIND),allocatable,dimension(:) :: senddispls !< displacement of send types
-	integer(MPI_ADDRESS_KIND),allocatable,dimension(:) :: recvdispls !< displacement of receive types
+        integer(MPI_ADDRESS_KIND),allocatable,dimension(:) :: recvdispls !< displacement of receive types
         type(halo),allocatable,dimension(:) :: sendhalos  !< halo types to send
         type(halo),allocatable,dimension(:) :: recvhalos  !< halo types to receive
         contains
@@ -519,6 +519,13 @@ module halos
          ierr=.false.
          return
       endif 
+
+!check contiguity of array
+      if (.not.is_contiguous(v)) then
+         if (verbose.gt.0)print*,"Array is not contiguous.."
+         ierr=.false.
+         return
+      endif
 
       allocate(lb(ndim),ub(ndim))
       lb=lbound(v)
