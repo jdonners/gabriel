@@ -28,8 +28,8 @@ module halos
           procedure :: joined => create_joined                  !< Combine the same halo of different variables
           procedure :: subarray => create_subarray                !< Create a subarray type
           procedure :: is_valid_halo => check_halo                 !< Verify a halo
-          final :: finalize_halo                      !< Finalize a halo
           procedure :: print => print_halo            !< print halo
+          final :: finalize_halo                      !< Finalize a halo
       end type halo
 
 !> Type to describe subarrays
@@ -90,15 +90,6 @@ module halos
       end type decomposition                                                                        
 
       contains 
-
-!> Function to return the MPI type
-!! @relates halos::halo
-      function mpitype(self)
-        class(halo), intent(in) :: self
-        integer :: mpitype
-
-        mpitype=self%m
-      end function mpitype
 
 !> Create type to combine different halos.
 !! This is used to communicate a subarray of a larger array
@@ -252,28 +243,9 @@ module halos
         self=h
       end subroutine create_joined
 
-!> check validity of a halo for a variable
+!> print a halo
 !! @relates halos::halo
-      logical function check_halo(self,v)
-        class(halo),intent(in) :: self
-        real,dimension(:,:,:),allocatable,intent(in) :: v
-
-        if(debug)print*,'check_halo'
-
-        check_halo=.false.
-        select type(h=>self%i)
-        type is (subarray)
-          check_halo=h%is_valid_halo(v)
-        type is (combined)
-          check_halo=h%is_valid_halo(v)
-        class default
-          if (h%initialized) check_halo=.true.
-        end select
-
-      end function check_halo
-
       subroutine print_halo(self)
-!! @relates halos::halo
         class(halo),intent(in) :: self
 
         if(debug)print*,'print_halo'
@@ -557,5 +529,37 @@ module halos
         call MPI_Type_commit(self%m,mpierr) 
                                                                         
       end subroutine create_joined_halo 
-                                                                        
-      END
+
+!> check validity of a halo for a variable
+!! @relates halos::halo
+      function check_halo(self,v)
+        logical :: check_halo
+        class(halo),intent(in) :: self
+        real,dimension(:,:,:),allocatable,intent(in) :: v
+
+        if(debug)print*,'check_halo'
+
+        check_halo=.false.
+        select type(h=>self%i)
+        type is (subarray)
+          check_halo=h%is_valid_halo(v)
+        type is (combined)
+          check_halo=h%is_valid_halo(v)
+        class default
+          if (h%initialized) check_halo=.true.
+        end select
+
+      end function check_halo
+
+!> Function to return the MPI type
+!! @relates halos::halo
+!! @public
+      function mpitype(self)
+        class(halo), intent(in) :: self
+        integer :: mpitype
+
+        mpitype=self%m
+      end function mpitype
+
+
+end module halos
