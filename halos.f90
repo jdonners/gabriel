@@ -213,11 +213,12 @@ module halos
 
 !> Create type to join the same halo of multiple variables.
 !! This is usually used to communicate the same part of different variables.
+!! @param self halo object
 !! @param n number of variables to communicate the halos
 !! @relates halos::halo
+      subroutine create_joined(self,n)
 ! The resulting halo is based on absolute addresses, so it will be communicated
 ! with MPI_BOTTOM as both sending and receiving buffers.
-      subroutine create_joined(self,n)
         use mpi
 
         class(halo)               :: self
@@ -258,6 +259,9 @@ module halos
 
       end subroutine print_halo
 
+!> print a subarray
+!! @relates halos::subarray
+!! @private
       subroutine print_subarray(self)
         class(subarray),intent(in) :: self
 
@@ -268,6 +272,7 @@ module halos
 
 
 !> add a variable to a joined halo type
+!! @relates halos::subarray
       subroutine add_joined(self,v)
         use mpi
 
@@ -296,36 +301,8 @@ module halos
                                                                         
       end subroutine add_joined
 
-      subroutine finalize_halo(h)
-        type(halo) :: h
-
-        integer mpierr
-
-        print*,'Finalizing halo ',h%m
-        if (associated(h%i)) then
-          deallocate(h%i)
-          nullify(h%i)
-        endif
-        if (h%initialized) then
-          call MPI_Type_free(h%m,mpierr)
-          h%initialized=.false.
-        endif
-
-      end subroutine finalize_halo
-
-      subroutine copy_halo(hout,hin)
-        class(halo),intent(inout) :: hout
-        class(halo),intent(in)    :: hin
-
-        integer mpierr
-
-        if(debug)print*,'copy_halo ',hin%initialized
-        if (hin%initialized) then
-          call MPI_Type_dup(hin%m,hout%m,mpierr)
-          allocate(hout%i,source=hin%i)
-        endif
-      end subroutine copy_halo
-
+!> Initialize a decomposition
+!! @relates halos::decomposition
       subroutine init_decomposition_(d,sends,recvs,comm)
         class(decomposition), intent(out)                  :: d
         integer, intent(in)                                :: sends,recvs,comm
@@ -348,29 +325,14 @@ module halos
 
       end subroutine init_decomposition_
 
-      subroutine add_decomposition_send_(d,rank,h)
+!> This is meant to trick doxygen in documenting the next routine
+!!@ private
+      subroutine dummy1
         use mpi
-        class(decomposition), intent(inout)                 :: d
-        type(halo), intent(in)                             :: h
-        integer, intent(in)                                :: rank
+      end subroutine dummy1
 
-        integer :: n,mpierr
-
-        n=d%sends+1
-        if (n.gt.d%maxsends) then
-          print*,"Exceeded maximum number of sending neighbours!"
-          call MPI_Abort(MPI_COMM_WORLD,1,mpierr)
-        endif
-
-        d%sendranks(n)=rank
-        d%sendhalos(n)=h
-        d%senddispls(n)=0
-        d%sendcnts(n)=1
-        d%sendweights(n)=1
-        d%sends=n
-
-      end subroutine add_decomposition_send_
-
+!> Add a receive to a decomposition
+!! @relates halos::decomposition
       subroutine add_decomposition_recv_(d,rank,h)
         use mpi
         class(decomposition), intent(inout)                 :: d
@@ -394,6 +356,33 @@ module halos
 
       end subroutine add_decomposition_recv_
 
+!> Add a send to a decomposition
+!! @relates halos::decomposition
+      subroutine add_decomposition_send_(d,rank,h)
+        use mpi
+        class(decomposition), intent(inout)                 :: d
+        type(halo), intent(in)                             :: h
+        integer, intent(in)                                :: rank
+
+        integer :: n,mpierr
+
+        n=d%sends+1
+        if (n.gt.d%maxsends) then
+          print*,"Exceeded maximum number of sending neighbours!"
+          call MPI_Abort(MPI_COMM_WORLD,1,mpierr)
+        endif
+
+        d%sendranks(n)=rank
+        d%sendhalos(n)=h
+        d%senddispls(n)=0
+        d%sendcnts(n)=1
+        d%sendweights(n)=1
+        d%sends=n
+
+      end subroutine add_decomposition_send_
+
+!> Commit a decomposition
+!! @relates halos::decomposition
       subroutine create_decomposition_(d,i,reorder)
         use mpi
         class(decomposition), intent(inout)            :: d
@@ -424,6 +413,8 @@ module halos
 
       end subroutine create_decomposition_
 
+!> Update a decomposition
+!! @relates halos::decomposition
       subroutine update_decomposition_(self,vsend,vrecv)
       use mpi
 
@@ -455,9 +446,46 @@ module halos
      &  vrecv,self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
                    
       end subroutine update_decomposition_
-                                                                        
-      logical function check_subarray(self,v)
+
+!> finalize halo
+!! @private
+      subroutine finalize_halo(h)
+        type(halo) :: h
+
+        integer mpierr
+
+        print*,'Finalizing halo ',h%m
+        if (associated(h%i)) then
+          deallocate(h%i)
+          nullify(h%i)
+        endif
+        if (h%initialized) then
+          call MPI_Type_free(h%m,mpierr)
+          h%initialized=.false.
+        endif
+
+      end subroutine finalize_halo
+
+!> copy halo
+!! @private
+      subroutine copy_halo(hout,hin)
+        class(halo),intent(inout) :: hout
+        class(halo),intent(in)    :: hin
+
+        integer mpierr
+
+        if(debug)print*,'copy_halo ',hin%initialized
+        if (hin%initialized) then
+          call MPI_Type_dup(hin%m,hout%m,mpierr)
+          allocate(hout%i,source=hin%i)
+        endif
+      end subroutine copy_halo
+
+!> check subarray halo
+!! @private
+      function check_subarray(self,v)
         use mpi 
+        logical :: check_subarray
         integer, parameter           :: ndim=3
                                                                         
         class(subarray), intent(in)                         :: self
@@ -494,8 +522,11 @@ module halos
         check_subarray=ierr
       end function check_subarray
 
-      logical function check_combined(self,v)
+!> check subarray halo
+!! @private
+      function check_combined(self,v)
         use mpi 
+        logical  :: check_combined
         integer, parameter           :: ndim=3
                                                                         
         class(combined), intent(in)                         :: self
@@ -514,6 +545,8 @@ module halos
         check_combined=ierr
       end function check_combined
                                                                         
+!> create and commit a joined halo
+!! @relates halos::halo
       subroutine create_joined_halo(self) 
         use mpi 
                                                                         
