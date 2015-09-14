@@ -27,9 +27,9 @@ module halos
           procedure :: combined => create_combined                !< Combine different halos of the same variable
           procedure :: joined => create_joined                  !< Combine the same halo of different variables
           procedure :: subarray => create_subarray                !< Create a subarray type
-          procedure :: is_valid_halo => check_halo                 !< Verify a halo (check bounds)
+          procedure :: is_valid_halo => check_halo                 !< Verify a halo
           final :: finalize_halo                      !< Finalize a halo
-          procedure :: print => print_halo
+          procedure :: print => print_halo            !< print halo
       end type halo
 
 !> Type to describe subarrays
@@ -42,56 +42,51 @@ module halos
         integer,dimension(:),allocatable :: subsizes           !< sizes of subarray
         integer,dimension(:),allocatable :: starts             !< starting indexes of subarray
         contains
-          procedure :: is_valid_halo => check_subarray
-          procedure :: print => print_subarray
+          procedure :: is_valid_halo => check_subarray         !< Verify a subarray
+          procedure :: print => print_subarray                 !< print a subarray
       end type
-
-      interface subarray
-        procedure create_subarray
-      end interface
 
 !> Type to join multiple halos of the same variable
       type, extends(halo) :: combined
-        integer :: n                              !< number of halos
-        type(halo),dimension(:),allocatable :: halos              !< array of halos in combined array
+        integer :: n                                           !< number of halos
+        type(halo),dimension(:),allocatable :: halos           !< array of halos
         contains
-          procedure :: is_valid_halo => check_combined
+          procedure :: is_valid_halo => check_combined         !< verify a combined halo
       end type
-
-      interface combined
-        procedure create_combined
-      end interface
 
 !> Type to join the same halo of multiple variables
       type, extends(halo) :: joined(length)
-        integer,len :: length
-        integer     :: n = 0
-        type(halo)  :: h
-        integer(MPI_ADDRESS_KIND),dimension(length) :: variables
+        integer,len :: length                                  !< max number of variables
+        integer     :: n = 0                                   !< actual number of variables
+        type(halo)  :: h                                       !< halo for each variable
+        integer(MPI_ADDRESS_KIND),dimension(length) :: variables !< multiple variables
       end type
-
-      interface joined
-        procedure create_joined
-      end interface
 
 !> Type to define decomposition
       type, public :: decomposition
         private
-        integer :: comm_parent,comm
-        integer :: sends=0
-        integer :: recvs=0
-        integer :: maxsends,maxrecvs
-        integer,allocatable,dimension(:) :: sendranks,recvranks
-        integer,allocatable,dimension(:) :: sendcnts,recvcnts
-        integer,allocatable,dimension(:) :: sendweights,recvweights
-        integer(MPI_ADDRESS_KIND),allocatable,dimension(:) :: senddispls,recvdispls
-        type(halo),allocatable,dimension(:) :: sendhalos,recvhalos
+        integer :: comm_parent             !< parent communicator
+        integer :: comm                    !< communicator
+        integer :: sends=0                 !< actual number of neighbors to send to
+        integer :: recvs=0                 !< actual number of neighbors to receive from
+        integer :: maxsends                !< max number of neighbors to send to
+        integer :: maxrecvs                !< max number of neighbors to receive from
+        integer,allocatable,dimension(:) :: sendranks !< ranks of neighbors to send to
+        integer,allocatable,dimension(:) :: recvranks !< ranks of neighbors to send to
+        integer,allocatable,dimension(:) :: sendcnts  !< type count to send
+        integer,allocatable,dimension(:) :: recvcnts  !< type count to receive
+        integer,allocatable,dimension(:) :: sendweights !< weight of sends 
+        integer,allocatable,dimension(:) :: recvweights !< weight of recvs
+        integer(MPI_ADDRESS_KIND),allocatable,dimension(:) :: senddispls !< displacement of send types
+	integer(MPI_ADDRESS_KIND),allocatable,dimension(:) :: recvdispls !< displacement of receive types
+        type(halo),allocatable,dimension(:) :: sendhalos  !< halo types to send
+        type(halo),allocatable,dimension(:) :: recvhalos  !< halo types to receive
         contains
-          procedure :: init => init_decomposition_
-          procedure :: add_send => add_decomposition_send_
-          procedure :: add_recv => add_decomposition_recv_
-          procedure :: create => create_decomposition_
-          procedure :: update => update_decomposition_
+          procedure :: init => init_decomposition_        !< initialize decomposition
+          procedure :: add_send => add_decomposition_send_  !< add a neighbor to send to
+          procedure :: add_recv => add_decomposition_recv_  !< add a neighbor to recv from
+          procedure :: create => create_decomposition_      !< finalize the decomposition
+          procedure :: update => update_decomposition_      !< update the decomposition
       end type decomposition                                                                        
 
       contains 
