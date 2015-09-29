@@ -87,6 +87,7 @@ module halos
           procedure :: add_recv => add_decomposition_recv_  !< add a neighbor to recv from
           procedure :: create => create_decomposition_      !< finalize the decomposition
           procedure :: update => update_decomposition_      !< update the decomposition
+          procedure :: autocreate => create_decomposition_halo_      !< create autodecomposition
       end type decomposition                                                                        
 
       contains 
@@ -391,9 +392,9 @@ module halos
 !! @relates halos::decomposition
       subroutine create_decomposition_(d,i,reorder)
         use mpi
-        class(decomposition), intent(inout)            :: d
-        integer, optional, intent(in)                 :: i
-        logical, optional, intent(in)                 :: reorder
+        class(decomposition), intent(inout)           :: d            !> decomposition type
+        integer, optional, intent(in)                 :: i            !> MPI_Info, default MPI_INFO_NULL
+        logical, optional, intent(in)                 :: reorder      !> reorder, default .true.
 
         integer info,ierr
         logical mpi_reorder
@@ -419,6 +420,116 @@ module halos
 
       end subroutine create_decomposition_
 
+!> Automatically create a decomposition with all halos.
+!! This is a collective MPI call.
+!! @relates halos::decomposition
+      subroutine create_decomposition_halo_(d,v,lower,upper,comm,offset)
+        use mpi
+        class(decomposition), intent(inout)            :: d    !> Resulting decomposition
+        real, dimension(..), allocatable, intent(in)   :: v    !> variable to create halos for
+        integer, dimension(:), intent(in) :: lower             !> lower bound of active domain
+        integer, dimension(:), intent(in) :: upper             !> upper bound of active domain
+        integer, intent(in)               :: comm              !> communicator
+        integer, dimension(:), intent(in), optional :: offset  !> offset of array indices
+
+        integer, parameter            :: MAX_HALOS = 10
+        integer :: sendcount=0
+        integer :: recvcount=0
+        integer,dimension(MAX_HALOS) :: sends
+        integer,dimension(MAX_HALOS) :: recvs
+        integer :: r
+        integer,dimension(:),allocatable :: lb,ub
+        integer,dimension(:,:),allocatable :: lshalo,ushalo
+        integer,dimension(:,:),allocatable :: lrhalo,urhalo
+        integer,dimension(:,:),allocatable :: lowers,uppers
+        integer,dimension(:,:),allocatable :: lbs,ubs
+        integer :: commsize,mpierr,commrank
+        integer :: i
+        type(halo) :: h
+
+        r=rank(v)
+        if (size(lower).ne.r) call error("Size of lower bound array not equal to rank!",12)
+        if (size(upper).ne.r) call error("Size of upper bound array not equal to rank!",13)
+
+        allocate(lb(r),ub(r))
+        lb=lbound(v)
+        ub=ubound(v)
+
+        if (any(lower.lt.lb)) call error("Lower bound array incorrect!",14)
+        if (any(upper.gt.ub)) call error("Upper bound array incorrect!",15)
+
+! Possibly a check with a warning to see if the active domain equals the variable bounds, i.e. no halo regions
+
+        call MPIcheck
+        call MPI_Comm_Size(comm,commsize,mpierr)
+        call MPI_Comm_Rank(comm,commrank,mpierr)
+
+        allocate(lowers(r,commsize),uppers(r,commsize))
+        allocate(lbs(r,commsize),ubs(r,commsize))
+
+!Of course, this could be implemented more efficiently..
+        call MPI_Allgather(lower,r,MPI_INTEGER,lowers,r,MPI_INTEGER,comm,mpierr)
+        call MPI_Allgather(upper,r,MPI_INTEGER,uppers,r,MPI_INTEGER,comm,mpierr)
+        call MPI_Allgather(lb,r,MPI_INTEGER,lbs,r,MPI_INTEGER,comm,mpierr)
+        call MPI_Allgather(ub,r,MPI_INTEGER,ubs,r,MPI_INTEGER,comm,mpierr)
+
+        allocate(lshalo(r,MAX_HALOS),ushalo(r,MAX_HALOS))
+        allocate(lrhalo(r,MAX_HALOS),urhalo(r,MAX_HALOS))
+        do i=1,commsize
+        if (i-1.ne.commrank) then  
+! check for overlap of active domains, if so, error!
+          if (all(upper.ge.lowers(:,i)).and.all(lower.le.uppers(:,i))) then
+             print*,'upper=',upper
+             print*,'lowers=',lowers(:,i)
+             print*,'lower=',lower
+             print*,'uppers=',uppers(:,i)
+             call error("Overlap of active domains!")
+          endif
+! check for overlap of my active domain with other domains
+          if (all(upper.ge.lbs(:,i)).and.all(lower.le.ubs(:,i))) then
+! send overlapping data from my active domain
+            sendcount=sendcount+1
+            if (sendcount.gt.MAX_HALOS) call error("Too many sends!")
+            sends(sendcount)=i-1
+            lshalo(:,sendcount)=max(lbs(:,i),lower)
+            ushalo(:,sendcount)=min(ubs(:,i),upper)
+          endif
+! check for overlap of my full domain with other active domains
+          if (all(ub.ge.lowers(:,i)).and.all(lb.le.uppers(:,i))) then
+! receive overlapping data from other active domain
+            recvcount=recvcount+1
+            if (recvcount.gt.MAX_HALOS) call error("Too many receives!")
+            recvs(recvcount)=i-1
+            lrhalo(:,recvcount)=max(lb,lowers(:,i))
+            urhalo(:,recvcount)=min(ub,uppers(:,i))
+          endif
+        endif
+        enddo
+        call d%init(sendcount,recvcount,comm)
+        do i=1,recvcount
+          call h%subarray(v,lrhalo(:,i),urhalo(:,i))
+          call d%add_recv(recvs(i),h)
+        enddo
+        do i=1,sendcount
+          call h%subarray(v,lshalo(:,i),ushalo(:,i))
+          call d%add_send(recvs(i),h)
+        enddo
+        call d%create
+
+      end subroutine create_decomposition_halo_
+
+      subroutine MPIcheck
+        use mpi
+        logical initialized,finalized
+        integer ierr
+
+        call MPI_Initialized(initialized,ierr)
+        if (.not.initialized) call error ('MPI library not yet initialized')
+        call MPI_Finalized(finalized,ierr)
+        if (finalized) call error ('MPI library already finalized')
+
+      end subroutine
+      
 !> Update a decomposition
 !! @relates halos::decomposition
       subroutine update_decomposition_(self,vsend,vrecv)
@@ -457,6 +568,22 @@ module halos
                    
       end subroutine update_decomposition_
 
+      subroutine error(s,e)
+        use mpi 
+        character(len=*),intent(in) :: s
+        integer, intent(in), optional :: e
+
+        integer mpierr
+
+        print*,s
+        if (present(e)) then        
+          call MPI_Abort(MPI_COMM_WORLD,e,mpierr)
+        else
+          call MPI_Abort(MPI_COMM_WORLD,99,mpierr)
+        endif
+
+      end subroutine error
+
 !> finalize halo
 !! @private
       subroutine finalize_halo(h)
@@ -464,7 +591,7 @@ module halos
 
         integer mpierr
 
-        print*,'Finalizing halo ',h%m
+        if (verbose.ge.2) print*,'Finalizing halo ',h%m
         if (associated(h%i)) then
           deallocate(h%i)
           nullify(h%i)
