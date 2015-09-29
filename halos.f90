@@ -438,7 +438,8 @@ module halos
         integer,dimension(MAX_HALOS) :: sends
         integer,dimension(MAX_HALOS) :: recvs
         integer :: r
-        integer,dimension(:),allocatable :: lb,ub
+        integer,dimension(:),allocatable :: lb,ub,off
+        integer,dimension(:),allocatable :: low,up
         integer,dimension(:,:),allocatable :: lshalo,ushalo
         integer,dimension(:,:),allocatable :: lrhalo,urhalo
         integer,dimension(:,:),allocatable :: lowers,uppers
@@ -451,12 +452,23 @@ module halos
         if (size(lower).ne.r) call error("Size of lower bound array not equal to rank!",12)
         if (size(upper).ne.r) call error("Size of upper bound array not equal to rank!",13)
 
-        allocate(lb(r),ub(r))
-        lb=lbound(v)
-        ub=ubound(v)
+        allocate(off(r))
+        off=0
+        if (present(offset)) then
+          if (size(offset).ne.r) call error("Size of offset array not equal to rank!",16)
+          off=offset
+        endif
 
-        if (any(lower.lt.lb)) call error("Lower bound array incorrect!",14)
-        if (any(upper.gt.ub)) call error("Upper bound array incorrect!",15)
+        allocate(lb(r),ub(r))
+        allocate(low(r),up(r))
+
+        lb=lbound(v)+off
+        ub=ubound(v)+off
+        low=lower+off
+        up=upper+off
+
+        if (any(low.lt.lb)) call error("Lower bound array incorrect!",14)
+        if (any(up.gt.ub)) call error("Upper bound array incorrect!",15)
 
 ! Possibly a check with a warning to see if the active domain equals the variable bounds, i.e. no halo regions
 
@@ -468,8 +480,8 @@ module halos
         allocate(lbs(r,commsize),ubs(r,commsize))
 
 !Of course, this could be implemented more efficiently..
-        call MPI_Allgather(lower,r,MPI_INTEGER,lowers,r,MPI_INTEGER,comm,mpierr)
-        call MPI_Allgather(upper,r,MPI_INTEGER,uppers,r,MPI_INTEGER,comm,mpierr)
+        call MPI_Allgather(low,r,MPI_INTEGER,lowers,r,MPI_INTEGER,comm,mpierr)
+        call MPI_Allgather(up,r,MPI_INTEGER,uppers,r,MPI_INTEGER,comm,mpierr)
         call MPI_Allgather(lb,r,MPI_INTEGER,lbs,r,MPI_INTEGER,comm,mpierr)
         call MPI_Allgather(ub,r,MPI_INTEGER,ubs,r,MPI_INTEGER,comm,mpierr)
 
@@ -478,21 +490,21 @@ module halos
         do i=1,commsize
         if (i-1.ne.commrank) then  
 ! check for overlap of active domains, if so, error!
-          if (all(upper.ge.lowers(:,i)).and.all(lower.le.uppers(:,i))) then
-             print*,'upper=',upper
-             print*,'lowers=',lowers(:,i)
-             print*,'lower=',lower
+          if (all(up.ge.lowers(:,i)).and.all(low.le.uppers(:,i))) then
+             print*,'upper=',up
              print*,'uppers=',uppers(:,i)
+             print*,'lower=',low
+             print*,'lowers=',lowers(:,i)
              call error("Overlap of active domains!")
           endif
 ! check for overlap of my active domain with other domains
-          if (all(upper.ge.lbs(:,i)).and.all(lower.le.ubs(:,i))) then
+          if (all(up.ge.lbs(:,i)).and.all(low.le.ubs(:,i))) then
 ! send overlapping data from my active domain
             sendcount=sendcount+1
             if (sendcount.gt.MAX_HALOS) call error("Too many sends!")
             sends(sendcount)=i-1
-            lshalo(:,sendcount)=max(lbs(:,i),lower)
-            ushalo(:,sendcount)=min(ubs(:,i),upper)
+            lshalo(:,sendcount)=max(lbs(:,i),low)-off
+            ushalo(:,sendcount)=min(ubs(:,i),up)-off
           endif
 ! check for overlap of my full domain with other active domains
           if (all(ub.ge.lowers(:,i)).and.all(lb.le.uppers(:,i))) then
@@ -500,8 +512,8 @@ module halos
             recvcount=recvcount+1
             if (recvcount.gt.MAX_HALOS) call error("Too many receives!")
             recvs(recvcount)=i-1
-            lrhalo(:,recvcount)=max(lb,lowers(:,i))
-            urhalo(:,recvcount)=min(ub,uppers(:,i))
+            lrhalo(:,recvcount)=max(lb,lowers(:,i))-off
+            urhalo(:,recvcount)=min(ub,uppers(:,i))-off
           endif
         endif
         enddo
@@ -514,6 +526,12 @@ module halos
           call h%subarray(v,lshalo(:,i),ushalo(:,i))
           call d%add_send(recvs(i),h)
         enddo
+
+        deallocate(lshalo,ushalo,lrhalo,urhalo)
+        deallocate(lb,ub,off)
+        deallocate(low,up)
+        deallocate(lbs,ubs)
+        deallocate(lowers,uppers)
         call d%create
 
       end subroutine create_decomposition_halo_
