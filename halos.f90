@@ -11,8 +11,14 @@ module halos
 !      logical, parameter :: debug=.true.
 !      logical, parameter :: check=.true.
 !      integer, parameter :: verbose=1
-      logical, parameter :: debug=.false.
       logical, parameter :: check=.true.
+
+! Verbosity levels
+! 0 : no verbosity
+! 1 : only errors
+! 2 : add warnings
+! 3 : add info
+! 4 : add debug 
       integer, parameter :: verbose=1
 
 !> Class to define halos
@@ -88,9 +94,23 @@ module halos
           procedure :: create => create_decomposition_      !< finalize the decomposition
           procedure :: update => update_decomposition_      !< update the decomposition
           procedure :: autocreate => create_decomposition_halo_      !< create autodecomposition
-      end type decomposition                                                                        
+      end type decomposition          
+
 
       contains 
+
+      logical function isdebug()
+
+        isdebug=.false.
+        if (verbose.eq.4) isdebug=.true.
+
+      end function
+
+      subroutine debug(s)
+        character(len=*),intent(in) :: s
+
+        if (isdebug()) print*,s
+      end subroutine
 
 !> Create type to combine different halos.
 !! This is used to communicate a subarray of a larger array
@@ -256,7 +276,7 @@ module halos
       subroutine print_halo(self)
         class(halo),intent(in) :: self
 
-        if(debug)print*,'print_halo'
+        call debug('print_halo')
         select type(h=>self%i)
         type is (subarray)
           call h%print
@@ -272,7 +292,7 @@ module halos
       subroutine print_subarray(self)
         class(subarray),intent(in) :: self
 
-        if(debug)print*,'print_subarray'
+        call debug('print_subarray')
         print*,'ndim=',self%ndim
 
       end subroutine print_subarray
@@ -397,7 +417,11 @@ module halos
         logical, optional, intent(in)                 :: reorder      !> reorder, default .true.
 
         integer info,ierr
+        integer commsize
         logical mpi_reorder
+        integer cnt,n
+
+        type(halo) h
 
         if (present(i)) then
           info=i
@@ -411,6 +435,40 @@ module halos
           mpi_reorder=.true.
         endif
 
+        call MPI_Comm_size(d%comm_parent,commsize,ierr)
+        do n=0,commsize-1
+          
+          if (count(d%recvranks.eq.n).gt.1) then
+            if(isdebug())print*,'n,d%recvs,count(d%recvranks.eq.n)=',n,d%recvs,count(d%recvranks.eq.n)
+!combine receive halos from the same rank into one combined type
+            call h%combined(pack(d%recvhalos(1:d%recvs),d%recvranks(1:d%recvs).eq.n))
+            cnt=count(d%recvranks(1:d%recvs).ne.n)
+            d%recvhalos(1:cnt)=pack(d%recvhalos,d%recvranks(1:d%recvs).ne.n)
+            d%recvdispls(1:cnt)=pack(d%recvdispls,d%recvranks(1:d%recvs).ne.n)
+            d%recvcnts(1:cnt)=pack(d%recvcnts,d%recvranks(1:d%recvs).ne.n)
+            d%recvweights(1:cnt)=pack(d%recvweights,d%recvranks(1:d%recvs).ne.n)
+            d%recvranks(1:cnt)=pack(d%recvranks,d%recvranks(1:d%recvs).ne.n)
+            d%recvs=cnt
+!add combined type
+            call d%add_recv(n,h)
+          endif
+          if (count(d%sendranks.eq.n).gt.1) then
+            if(isdebug())print*,'n,d%sends,count(d%sendranks.eq.n)=',n,d%sends,count(d%sendranks.eq.n)
+!combine send halos to the same rank into one combined type
+            call h%combined(pack(d%sendhalos(1:d%sends),d%sendranks(1:d%sends).eq.n))
+!remove separate types from send arrays
+            cnt=count(d%sendranks(1:d%sends).ne.n)
+            d%sendhalos(1:cnt)=pack(d%sendhalos,d%sendranks(1:d%sends).ne.n)
+            d%senddispls(1:cnt)=pack(d%senddispls,d%sendranks(1:d%sends).ne.n)
+            d%sendcnts(1:cnt)=pack(d%sendcnts,d%sendranks(1:d%sends).ne.n)
+            d%sendweights(1:cnt)=pack(d%sendweights,d%sendranks(1:d%sends).ne.n)
+            d%sendranks(1:cnt)=pack(d%sendranks,d%sendranks(1:d%sends).ne.n)
+            d%sends=cnt
+!add combined type
+            call d%add_send(n,h)
+          endif
+        enddo
+
         call MPI_Dist_graph_create_adjacent(d%comm_parent,d%recvs,d%recvranks,d%recvweights, &
      &           d%sends,d%sendranks,d%sendweights,info,mpi_reorder,d%comm,ierr)
         if (ierr.ne.MPI_SUCCESS) then
@@ -423,7 +481,8 @@ module halos
 !> Automatically create a decomposition with all halos.
 !! This is a collective MPI call.
 !! @relates halos::decomposition
-      subroutine create_decomposition_halo_(d,v,lower,upper,comm,offset)
+!      subroutine create_decomposition_halo_(d,v,lower,upper,comm,offset,periodic,lower_global,upper_global)
+      subroutine create_decomposition_halo_(d,v,lower,upper,comm,offset,periodic)
         use mpi
         class(decomposition), intent(inout)            :: d    !> Resulting decomposition
         real, dimension(..), allocatable, intent(in)   :: v    !> variable to create halos for
@@ -431,6 +490,9 @@ module halos
         integer, dimension(:), intent(in) :: upper             !> upper bound of active domain
         integer, intent(in)               :: comm              !> communicator
         integer, dimension(:), intent(in), optional :: offset  !> offset of array indices
+        logical, dimension(:), intent(in), optional :: periodic       !> periodicity of global domain
+!        integer, dimension(:), intent(in), optional :: global_lower   !> lower bound of global domain
+!        integer, dimension(:), intent(in), optional :: global_upper   !> upper bound of global domain
 
         integer, parameter            :: MAX_HALOS = 10
         integer :: sendcount=0
@@ -439,11 +501,13 @@ module halos
         integer,dimension(MAX_HALOS) :: recvs
         integer :: r
         integer,dimension(:),allocatable :: lb,ub,off
+        integer,dimension(:),allocatable :: shf
         integer,dimension(:),allocatable :: low,up
         integer,dimension(:,:),allocatable :: lshalo,ushalo
         integer,dimension(:,:),allocatable :: lrhalo,urhalo
         integer,dimension(:,:),allocatable :: lowers,uppers
         integer,dimension(:,:),allocatable :: lbs,ubs
+        integer,dimension(:),allocatable :: global_low,global_up
         integer :: commsize,mpierr,commrank
         integer :: i
         type(halo) :: h
@@ -517,6 +581,70 @@ module halos
           endif
         endif
         enddo
+
+! check for periodicity arguments
+! if global bounds are used: check if defined global upper and lower bounds really are the maximum boundary values
+!        if (present(periodic).and.present(global_lower).and.present(global_upper)) then
+        if (present(periodic)) then
+          allocate(global_low(r),global_up(r))
+          global_low=minval(lowers,dim=2)
+          global_up=maxval(uppers,dim=2)
+          if (verbose.eq.1.and.commrank.eq.0) then
+            print*,'Requested periodicity: ',periodic
+            print*,'Global lower bounds: ',global_low
+            print*,'Global upper bounds: ',global_up
+          endif
+          if (count(periodic).gt.1) then
+            call error("Periodicity in more than one direction not yet implemented.")
+          endif
+          allocate(shf(r))
+          shf=merge(global_up-global_low+1,0,periodic)
+          print*,'shf=',shf
+          do i=1,commsize
+! check for overlap of my active domain with other domains
+            if (all(up.ge.lbs(:,i)+shf).and.all(low.le.ubs(:,i)+shf)) then
+! send overlapping data from my active domain
+              sendcount=sendcount+1
+              if (sendcount.gt.MAX_HALOS) call error("Too many sends!")
+              sends(sendcount)=i-1
+              lshalo(:,sendcount)=max(lbs(:,i)+shf,low)-off
+              ushalo(:,sendcount)=min(ubs(:,i)+shf,up)-off
+              if(isdebug())write(*,'(a,8i4)')'per1,lshalo,ushalo=',i-1,commrank,lshalo(:,sendcount),ushalo(:,sendcount)
+            endif
+! check for overlap of my full domain with other active domains
+            if (all(ub.ge.lowers(:,i)-shf).and.all(lb.le.uppers(:,i)-shf)) then
+! receive overlapping data from other active domain
+              recvcount=recvcount+1
+              if (recvcount.gt.MAX_HALOS) call error("Too many receives!")
+              recvs(recvcount)=i-1
+              lrhalo(:,recvcount)=max(lb,lowers(:,i)-shf)-off
+              urhalo(:,recvcount)=min(ub,uppers(:,i)-shf)-off
+              if(isdebug())write(*,'(a,8i4)')'per4,lrhalo,urhalo=',i-1,commrank,lrhalo(:,recvcount),urhalo(:,recvcount)
+            endif
+! check for overlap of my active domain with other domains
+            if (all(up.ge.lbs(:,i)-shf).and.all(low.le.ubs(:,i)-shf)) then
+! send overlapping data from my active domain
+              sendcount=sendcount+1
+              if (sendcount.gt.MAX_HALOS) call error("Too many sends!")
+              sends(sendcount)=i-1
+              lshalo(:,sendcount)=max(lbs(:,i)-shf,low)-off
+              ushalo(:,sendcount)=min(ubs(:,i)-shf,up)-off
+              if(isdebug())write(*,'(a,8i4)')'per3,lshalo,ushalo=',i-1,commrank,lshalo(:,sendcount),ushalo(:,sendcount)
+            endif
+! check for overlap of my full domain with other active domains
+            if (all(ub.ge.lowers(:,i)+shf).and.all(lb.le.uppers(:,i)+shf)) then
+! receive overlapping data from other active domain
+              recvcount=recvcount+1
+              if (recvcount.gt.MAX_HALOS) call error("Too many receives!")
+              recvs(recvcount)=i-1
+              lrhalo(:,recvcount)=max(lb,lowers(:,i)+shf)-off
+              urhalo(:,recvcount)=min(ub,uppers(:,i)+shf)-off
+              if(isdebug())write(*,'(a,8i4)')'per2,lrhalo,urhalo=',i-1,commrank,lrhalo(:,recvcount),urhalo(:,recvcount)
+            endif
+          enddo
+          deallocate(global_low,global_up,shf)
+        endif
+
         call d%init(sendcount,recvcount,comm)
         do i=1,recvcount
           call h%subarray(v,lrhalo(:,i),urhalo(:,i))
@@ -562,10 +690,10 @@ module halos
       integer mpierr,status(MPI_STATUS_SIZE)
       integer i
 
-      if(debug)print*,'update_decomposition'
+      call debug('update_decomposition')
       if (check) then
         do i=1,self%sends
-          if(debug)print*,'i=',i
+          if (isdebug()) print*,'i=',i
           if (.not.self%sendhalos(i)%is_valid_halo(vsend)) then
             print*,'Not valid '
             call MPI_Abort(MPI_COMM_WORLD,33,mpierr)
@@ -629,7 +757,7 @@ module halos
 
         integer mpierr
 
-        if(debug)print*,'copy_halo ',hin%initialized
+        if (isdebug()) print*,'copy_halo ',hin%initialized
         if (hin%initialized) then
           call MPI_Type_dup(hin%m,hout%m,mpierr)
           allocate(hout%i,source=hin%i)
@@ -651,7 +779,7 @@ module halos
 
       integer,dimension(:),allocatable :: lb,ub
        
-      if (debug) print*,'check_subarray'           
+      call debug('check_subarray')
       ierr=.true.      
                                                            
       ndim=rank(v)
@@ -710,10 +838,10 @@ module halos
       integer i,status(MPI_STATUS_SIZE) 
       logical ierr
                                                           ! bounds for s
-      if (debug) print*,'check_combined'
+      call debug('check_combined')
       ierr=.true.      
 
-      if (debug) print*,'n=',self%n                                                          
+      if (isdebug()) print*,'n=',self%n                                                          
       do i=1,self%n
         if(.not.self%halos(i)%is_valid_halo(v)) ierr=.false.
       enddo
@@ -746,7 +874,7 @@ module halos
         class(halo),intent(in) :: self
         real,dimension(..),allocatable,intent(in) :: v
 
-        if(debug)print*,'check_halo'
+        call debug('check_halo')
 
         check_halo=.false.
         select type(h=>self%i)
