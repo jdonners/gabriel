@@ -508,6 +508,7 @@ module halos
         integer,dimension(:,:),allocatable :: lowers,uppers
         integer,dimension(:,:),allocatable :: lbs,ubs
         integer,dimension(:),allocatable :: global_low,global_up
+        logical,dimension(:),allocatable :: per
         integer :: commsize,mpierr,commrank
         integer :: i
         type(halo) :: h
@@ -594,12 +595,13 @@ module halos
             print*,'Global lower bounds: ',global_low
             print*,'Global upper bounds: ',global_up
           endif
-          if (count(periodic).gt.1) then
-            call error("Periodicity in more than one direction not yet implemented.")
-          endif
+          allocate(per(r))
+          per=periodic
           allocate(shf(r))
-          shf=merge(global_up-global_low+1,0,periodic)
-          print*,'shf=',shf
+          do
+          shf=merge(global_up-global_low+1,0,per)
+          do
+          if (isdebug())print*,'shf=',shf
           do i=1,commsize
 ! check for overlap of my active domain with other domains
             if (all(up.ge.lbs(:,i)+shf).and.all(low.le.ubs(:,i)+shf)) then
@@ -621,28 +623,12 @@ module halos
               urhalo(:,recvcount)=min(ub,uppers(:,i)-shf)-off
               if(isdebug())write(*,'(a,8i4)')'per4,lrhalo,urhalo=',i-1,commrank,lrhalo(:,recvcount),urhalo(:,recvcount)
             endif
-! check for overlap of my active domain with other domains
-            if (all(up.ge.lbs(:,i)-shf).and.all(low.le.ubs(:,i)-shf)) then
-! send overlapping data from my active domain
-              sendcount=sendcount+1
-              if (sendcount.gt.MAX_HALOS) call error("Too many sends!")
-              sends(sendcount)=i-1
-              lshalo(:,sendcount)=max(lbs(:,i)-shf,low)-off
-              ushalo(:,sendcount)=min(ubs(:,i)-shf,up)-off
-              if(isdebug())write(*,'(a,8i4)')'per3,lshalo,ushalo=',i-1,commrank,lshalo(:,sendcount),ushalo(:,sendcount)
-            endif
-! check for overlap of my full domain with other active domains
-            if (all(ub.ge.lowers(:,i)+shf).and.all(lb.le.uppers(:,i)+shf)) then
-! receive overlapping data from other active domain
-              recvcount=recvcount+1
-              if (recvcount.gt.MAX_HALOS) call error("Too many receives!")
-              recvs(recvcount)=i-1
-              lrhalo(:,recvcount)=max(lb,lowers(:,i)+shf)-off
-              urhalo(:,recvcount)=min(ub,uppers(:,i)+shf)-off
-              if(isdebug())write(*,'(a,8i4)')'per2,lrhalo,urhalo=',i-1,commrank,lrhalo(:,recvcount),urhalo(:,recvcount)
-            endif
           enddo
-          deallocate(global_low,global_up,shf)
+          if (.not.signs(shf)) exit
+          enddo ! do signed
+          if (.not.combo(periodic,per)) exit
+          enddo ! do combo
+          deallocate(global_low,global_up,shf,per)
         endif
 
         call d%init(sendcount,recvcount,comm)
@@ -663,6 +649,75 @@ module halos
         call d%create
 
       end subroutine create_decomposition_halo_
+
+logical recursive function combo(c,d,n) result(combor)
+! this function makes a switch in the logical array.
+! c is the original array
+! d is the work array
+! n is an internal argument used to remember the position in the array.
+! returns .false. if no switch is made (to the calling routine this is the moment to stop)
+! returns .true. if a switch is made
+  logical, dimension(:),intent(in) :: c
+  logical, dimension(:),intent(inout) :: d
+  integer, optional :: n
+
+  integer i
+
+  if (present(n)) then
+    i=n
+  else
+    i=1
+  endif
+
+  if (i.gt.size(c)) then
+    combor=.false.
+  elseif (combo(c,d,i+1)) then 
+    combor=.true.
+  elseif (d(i)) then
+    d(i)=.false.
+    d(i+1:size(d))=c(i+1:size(c))
+    combor=.true.
+  else
+    combor=.false.
+  endif
+
+  if (count(d).eq.0) combor=.false.
+
+  return
+  end function
+
+logical recursive function signs(d,n) result(signsr)
+! this function creates all combinations of a signed array.
+! d is the work array, initially with either 0's or 1's.
+! n is an internal argument used to remember the position in the array.
+! returns .false. if no switch is made (to the calling routine this is the moment to stop)
+! returns .true. if a switch is made
+  integer, dimension(:),intent(inout) :: d
+  integer, optional :: n
+
+  integer i
+
+  if (present(n)) then
+    i=n
+  else
+    i=1
+  endif
+
+  if (i.gt.size(d)) then
+    signsr=.false.
+  elseif (signs(d,i+1)) then 
+    signsr=.true.
+  elseif (d(i).gt.0) then
+    d(i)=-d(i)
+    where (d(i+1:size(d)).lt.0)d(i+1:size(d))=-d(i+1:size(d))
+    signsr=.true.
+  else
+    signsr=.false.
+  endif
+
+
+  return
+  end function
 
       subroutine MPIcheck
         use mpi
