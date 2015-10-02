@@ -858,11 +858,11 @@ logical recursive function signs(d,n) result(signsr)
       endif 
 
 !check contiguity of array
-      if (.not.is_contiguous(v)) then
-         if (verbose.gt.0)print*,"Array is not contiguous.."
-         ierr=.false.
-         return
-      endif
+!      if (.not.is_contiguous(v)) then
+!         if (verbose.gt.0)print*,"Array is not contiguous.."
+!         ierr=.false.
+!         return
+!      endif
 
       allocate(lb(ndim),ub(ndim))
       lb=lbound(v)
