@@ -494,7 +494,7 @@ module halos
 !        integer, dimension(:), intent(in), optional :: global_lower   !> lower bound of global domain
 !        integer, dimension(:), intent(in), optional :: global_upper   !> upper bound of global domain
 
-        integer, parameter            :: MAX_HALOS = 10
+        integer, parameter            :: MAX_HALOS = 30
         integer :: sendcount=0
         integer :: recvcount=0
         integer,dimension(MAX_HALOS) :: sends
@@ -696,6 +696,7 @@ logical recursive function signs(d,n) result(signsr)
   integer, optional :: n
 
   integer i
+  logical firstsign
 
   if (present(n)) then
     i=n
@@ -703,13 +704,21 @@ logical recursive function signs(d,n) result(signsr)
     i=1
   endif
 
-  if (i.gt.size(d)) then
+  firstsign=all(d(1:i-1).eq.0)
+
+  if (d(i).ge.1.and.firstsign) then 
+    d=-d
+    signsr=.true.
+  elseif (d(i).le.-1.and.firstsign) then 
+    d=-d
+    signsr=signs(d,i+1)
+  elseif (i.gt.size(d)) then
     signsr=.false.
   elseif (signs(d,i+1)) then 
     signsr=.true.
   elseif (d(i).gt.0) then
     d(i)=-d(i)
-    where (d(i+1:size(d)).lt.0)d(i+1:size(d))=-d(i+1:size(d))
+    where (d(i+1:size(d)).lt.0) d(i+1:size(d))=-d(i+1:size(d))
     signsr=.true.
   else
     signsr=.false.
@@ -952,6 +961,5 @@ logical recursive function signs(d,n) result(signsr)
 
         mpitype=self%m
       end function mpitype
-
 
 end module halos
