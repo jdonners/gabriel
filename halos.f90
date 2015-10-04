@@ -1,5 +1,5 @@
 !***********************************************************************
-module halos
+module gabriel
 !***********************************************************************
 ! contains info for the message passing
 !-----------------------------------------------------------------------
@@ -962,4 +962,4 @@ logical recursive function signs(d,n) result(signsr)
         mpitype=self%m
       end function mpitype
 
-end module halos
+end module
