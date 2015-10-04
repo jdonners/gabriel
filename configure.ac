@@ -11,6 +11,33 @@ AM_SILENT_RULES([yes])
 AC_LANG([Fortran])
 #set the extension to f90, to compile the tests
 AC_FC_SRCEXT(f90)
+    AC_MSG_CHECKING([for finalization support])
+    AC_LINK_IFELSE(
+     [AC_LANG_SOURCE([[
+      module conftest
+      implicit none
+
+      type :: a
+        integer b
+        contains
+        final :: finalize_a
+      end type
+      contains
+      subroutine finalize_a(x)
+        type(a) :: x
+          x%b=0
+      end subroutine
+      end module
+
+      program t
+        use conftest
+      end program]])],
+    [_ax_f03_finalization_found=yes],[_ax_f03_finalization_found=no])
+    AC_MSG_RESULT($_ax_f03_finalization_found)
+if test "x$_ax_f03_finalization_found" == "xno" ; then
+  AC_MSG_ERROR([Fortran compiler does not support finalization.])
+fi
+
 
 LT_INIT
 
