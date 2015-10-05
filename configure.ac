@@ -9,43 +9,15 @@ AM_INIT_AUTOMAKE
 AM_SILENT_RULES([yes])
 
 AC_LANG([Fortran])
-#set the extension to f90, to compile the tests
-AC_FC_SRCEXT(f90)
-    AC_MSG_CHECKING([for finalization support])
-    AC_LINK_IFELSE(
-     [AC_LANG_SOURCE([[
-      module conftest
-      implicit none
-
-      type :: a
-        integer b
-        contains
-        final :: finalize_a
-      end type
-      contains
-      subroutine finalize_a(x)
-        type(a) :: x
-          x%b=0
-      end subroutine
-      end module
-
-      program t
-        use conftest
-      end program]])],
-    [_ax_f03_finalization_found=yes],[_ax_f03_finalization_found=no])
-    AC_MSG_RESULT($_ax_f03_finalization_found)
-if test "x$_ax_f03_finalization_found" == "xno" ; then
-  AC_MSG_ERROR([Fortran compiler does not support finalization.])
-fi
-
-
-LT_INIT
 
 # AC_PROG_FC
 AX_PROG_FC_MPI([true],
   [ use_mpi=yes],
   [AC_MSG_FAILURE([MPI compiler needed, but could not find MPI.],1)
   ])
+
+#set the extension to f90, to compile the tests
+AC_FC_SRCEXT(f90)
 
     # test if MPI-3 is available
     # We do not use AC_SEARCH_LIBS here, as it caches its outcome and
@@ -106,7 +78,34 @@ AC_SUBST(FC_DEFINE)
 #  fi
 #done
 
-AC_MSG_CHECKING([for assumed rank support])
+    AC_MSG_CHECKING([if ${FC} supports finalization])
+    AC_LINK_IFELSE(
+     [AC_LANG_SOURCE([[
+      module conftest
+      implicit none
+
+      type :: a
+        integer b
+        contains
+        final :: finalize_a
+      end type
+      contains
+      subroutine finalize_a(x)
+        type(a) :: x
+          x%b=0
+      end subroutine
+      end module
+
+      program t
+        use conftest
+      end program]])],
+    [_ax_f03_finalization_found=yes],[_ax_f03_finalization_found=no])
+    AC_MSG_RESULT($_ax_f03_finalization_found)
+if test "x$_ax_f03_finalization_found" == "xno" ; then
+  AC_MSG_ERROR([${FC} does not support finalization.])
+fi
+
+AC_MSG_CHECKING([if ${FC} supports assumed rank arrays])
 AC_LINK_IFELSE(
   [AC_LANG_SOURCE([[
       program conftest
@@ -119,7 +118,7 @@ AC_LINK_IFELSE(
       end subroutine
       end]])],
   [assumedrank_works=yes],
-  [assumedrank_works=no AC_MSG_ERROR([Compiler doesn''t support assumed rank arrays. Please use gcc 4.9, Intel 2016 or higher])])
+  [assumedrank_works=no AC_MSG_ERROR([${FC} does not support assumed rank arrays.])])
 AC_MSG_RESULT([$assumedrank_works])
 
 # Checks for header files.
@@ -127,6 +126,7 @@ AC_MSG_RESULT([$assumedrank_works])
 # Checks for typedefs, structures, and compiler characteristics.
 
 # Checks for library functions.
+LT_INIT
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
