@@ -1,6 +1,6 @@
 program ex1d
 
-  use halos
+  use gabriel
   use MPI
 
   interface operator(//)

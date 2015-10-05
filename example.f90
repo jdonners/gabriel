@@ -1,6 +1,6 @@
 program ex
 
-  use halos
+  use gabriel
   use MPI
 
   interface operator(//)

@@ -1,10 +1,15 @@
 lib_LTLIBRARIES = libgabriel.la
 libgabriel_la_LDFLAGS = -version-info 0:0:0
-libgabriel_la_SOURCES = halos.f90
+libgabriel_la_SOURCES = gabriel.f90
 
-include_HEADERS = gabriel.$(FC_MODEXT)
+nodist_include_HEADERS = gabriel.$(FC_MODEXT)
 
-EXTRA_DIST =  halos.docset
+check_PROGRAMS = example1d example_auto example_auto_offset
+TESTS = example1d example_auto example_auto_offset
+AM_DEFAULT_SOURCE_EXT = .f90
+LDADD = -lgabriel
+
+EXTRA_DIST =  gabriel.docset
 
 # Change preprocessor flag. This is specific to some Fortran compilers.
 # This hack shouldn't be used if C/C++ code is included!
