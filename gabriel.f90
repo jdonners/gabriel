@@ -506,8 +506,8 @@ module gabriel
 !        integer, dimension(:), intent(in), optional :: global_upper   !> upper bound of global domain
 
         integer, parameter            :: MAX_HALOS = 30
-        integer :: sendcount=0
-        integer :: recvcount=0
+        integer :: sendcount
+        integer :: recvcount
         integer,dimension(MAX_HALOS) :: sends
         integer,dimension(MAX_HALOS) :: recvs
         integer :: r
@@ -523,6 +523,9 @@ module gabriel
         integer :: commsize,mpierr,commrank
         integer :: i
         type(halo) :: h
+
+        sendcount=0
+        recvcount=0
 
         r=rank(v)
         if (size(lower).ne.r) call error("Size of lower bound array not equal to rank!",12)
@@ -622,7 +625,7 @@ module gabriel
               sends(sendcount)=i-1
               lshalo(:,sendcount)=max(lbs(:,i)+shf,low)-off
               ushalo(:,sendcount)=min(ubs(:,i)+shf,up)-off
-              if(isdebug())write(*,'(a,8i4)')'per1,lshalo,ushalo=',i-1,commrank,lshalo(:,sendcount),ushalo(:,sendcount)
+              if(isdebug())write(*,'(a,8i7)')'per1,lshalo,ushalo=',i-1,commrank,lshalo(:,sendcount),ushalo(:,sendcount)
             endif
 ! check for overlap of my full domain with other active domains
             if (all(ub.ge.lowers(:,i)-shf).and.all(lb.le.uppers(:,i)-shf)) then
@@ -632,7 +635,7 @@ module gabriel
               recvs(recvcount)=i-1
               lrhalo(:,recvcount)=max(lb,lowers(:,i)-shf)-off
               urhalo(:,recvcount)=min(ub,uppers(:,i)-shf)-off
-              if(isdebug())write(*,'(a,8i4)')'per4,lrhalo,urhalo=',i-1,commrank,lrhalo(:,recvcount),urhalo(:,recvcount)
+              if(isdebug())write(*,'(a,8i7)')'per4,lrhalo,urhalo=',i-1,commrank,lrhalo(:,recvcount),urhalo(:,recvcount)
             endif
           enddo
           if (.not.signs(shf)) exit

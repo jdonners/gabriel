@@ -59,24 +59,30 @@ AC_SUBST(FC_MODEXT)
 AC_FC_PP_DEFINE
 AC_SUBST(FC_DEFINE)
 
-#AC_MSG_CHECKING([for flag to promote REAL to DOUBLE PRECISION])
-#save_FCFLAGS="$FCFLAGS"
-#for ax_option in -r8 -qautodbl=dbl4 "-fdefault-real-8 -fdefault-double-8" "-s real64" -Mr8; do
-#  FCFLAGS="$save_FCFLAGS $ax_option $dummy_FCFLAGS"
-#  AC_LINK_IFELSE(
-#    [AC_LANG_SOURCE([[
-#      program conftest
-#      implicit none
-#
-#      print*,dsin(0.0)
-#
-#      end program]])],
-#    [real_to_double=$ax_option])
-#  if test "$real_to_double" != ""; then
-#    AC_MSG_RESULT([$real_to_double])
-#    break
-#  fi
-#done
+r8_wanted=yes
+AC_ARG_ENABLE([real8], AS_HELP_STRING([--enable-real8],
+  [enable 8-byte real arrays]),
+  [if test "x$enableval" == "xno"; then r8_wanted=no; fi],[])
+if test "x$enableval" == "xyes"; then
+AC_MSG_CHECKING([for flag to promote REAL to REAL*8])
+save_FCFLAGS="$FCFLAGS"
+for ax_option in -r8 -qautodbl=dbl4 "-fdefault-real-8 -fdefault-double-8" "-s real64" -Mr8; do
+  FCFLAGS="$save_FCFLAGS $ax_option $dummy_FCFLAGS"
+  AC_LINK_IFELSE(
+    [AC_LANG_SOURCE([[
+      program conftest
+      implicit none
+
+      print*,dsin(0.0)
+
+      end program]])],
+    [real_to_double=$ax_option])
+  if test "$real_to_double" != ""; then
+    AC_MSG_RESULT([$real_to_double])
+    break
+  fi
+done
+fi
 
     AC_MSG_CHECKING([if ${FC} supports finalization])
     AC_LINK_IFELSE(
