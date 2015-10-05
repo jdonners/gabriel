@@ -19,7 +19,8 @@ module gabriel
 ! 2 : add warnings
 ! 3 : add info
 ! 4 : add debug 
-      integer, parameter :: verbose=1
+      integer :: verbose=1
+      public :: gabriel_set_verbosity
 
 !> Class to define halos
       type, public :: halo
@@ -99,6 +100,13 @@ module gabriel
 
       contains 
 
+      subroutine gabriel_set_verbosity(level)
+        integer :: level
+
+        if (level.ge.0 .and. level.le.4) verbose=level
+
+      end subroutine
+
       logical function isdebug()
 
         isdebug=.false.
@@ -114,7 +122,7 @@ module gabriel
 
 !> Create type to combine different halos.
 !! This is used to communicate a subarray of a larger array
-!! @relates halos::halo
+!! @relates gabriel::halo
       subroutine create_subarray(self,array,starts,stops,subsizes)
         use mpi
 
@@ -125,6 +133,8 @@ module gabriel
 
         integer                 :: mpierr
         integer           :: ndim
+        integer           :: realtype
+        real              :: dummyreal
 
 ! check arguments
         if (present(stops).and.present(subsizes)) then
@@ -183,8 +193,9 @@ module gabriel
           endif
 
 ! create type
+          call MPI_Type_create_f90_real(precision(dummyreal),exponent(dummyreal),realtype,mpierr)
           call MPI_Type_create_subarray(ndim,sub%sizes,sub%subsizes,sub%starts,    &
-     &       MPI_ORDER_FORTRAN,MPI_REAL,self%m,mpierr)
+     &       MPI_ORDER_FORTRAN,realtype,self%m,mpierr)
 ! note that the mpitype is stored in the halo type that points to the subarray type, NOT in the subarray type.
         end select ! sub => h%i
         call MPI_Type_commit(self%m,mpierr)
@@ -193,7 +204,7 @@ module gabriel
 
 !> Create type to combine different halos.
 !! This is usually used to communicate different parts of the same variable
-!! @relates halos::halo
+!! @relates gabriel::halo
       subroutine create_combined(self,halos)
         use mpi
 
@@ -238,7 +249,7 @@ module gabriel
 !! This is usually used to communicate the same part of different variables.
 !! @param self halo object
 !! @param n number of variables to communicate the halos
-!! @relates halos::halo
+!! @relates gabriel::halo
       subroutine create_joined(self,n)
 ! The resulting halo is based on absolute addresses, so it will be communicated
 ! with MPI_BOTTOM as both sending and receiving buffers.
@@ -272,7 +283,7 @@ module gabriel
       end subroutine create_joined
 
 !> print a halo
-!! @relates halos::halo
+!! @relates gabriel::halo
       subroutine print_halo(self)
         class(halo),intent(in) :: self
 
@@ -287,7 +298,7 @@ module gabriel
       end subroutine print_halo
 
 !> print a subarray
-!! @relates halos::subarray
+!! @relates gabriel::subarray
 !! @private
       subroutine print_subarray(self)
         class(subarray),intent(in) :: self
@@ -299,7 +310,7 @@ module gabriel
 
 
 !> add a variable to a joined halo type
-!! @relates halos::subarray
+!! @relates gabriel::subarray
       subroutine add_joined(self,v)
         use mpi
 
@@ -329,7 +340,7 @@ module gabriel
       end subroutine add_joined
 
 !> Initialize a decomposition
-!! @relates halos::decomposition
+!! @relates gabriel::decomposition
       subroutine init_decomposition_(d,sends,recvs,comm)
         class(decomposition), intent(out)                  :: d
         integer, intent(in)                                :: sends,recvs,comm
@@ -359,7 +370,7 @@ module gabriel
       end subroutine dummy1
 
 !> Add a receive to a decomposition
-!! @relates halos::decomposition
+!! @relates gabriel::decomposition
       subroutine add_decomposition_recv_(d,rank,h)
         use mpi
         class(decomposition), intent(inout)                 :: d
@@ -384,7 +395,7 @@ module gabriel
       end subroutine add_decomposition_recv_
 
 !> Add a send to a decomposition
-!! @relates halos::decomposition
+!! @relates gabriel::decomposition
       subroutine add_decomposition_send_(d,rank,h)
         use mpi
         class(decomposition), intent(inout)                 :: d
@@ -409,7 +420,7 @@ module gabriel
       end subroutine add_decomposition_send_
 
 !> Commit a decomposition
-!! @relates halos::decomposition
+!! @relates gabriel::decomposition
       subroutine create_decomposition_(d,i,reorder)
         use mpi
         class(decomposition), intent(inout)           :: d            !> decomposition type
@@ -480,7 +491,7 @@ module gabriel
 
 !> Automatically create a decomposition with all halos.
 !! This is a collective MPI call.
-!! @relates halos::decomposition
+!! @relates gabriel::decomposition
 !      subroutine create_decomposition_halo_(d,v,lower,upper,comm,offset,periodic,lower_global,upper_global)
       subroutine create_decomposition_halo_(d,v,lower,upper,comm,offset,periodic)
         use mpi
@@ -741,7 +752,7 @@ logical recursive function signs(d,n) result(signsr)
       end subroutine
       
 !> Update a decomposition
-!! @relates halos::decomposition
+!! @relates gabriel::decomposition
       subroutine update_decomposition_(self,vsend,vrecv)
       use mpi
       use iso_c_binding, only : c_loc,c_f_pointer
@@ -801,9 +812,9 @@ logical recursive function signs(d,n) result(signsr)
 
         integer mpierr
 
-        if (verbose.ge.2) print*,'Finalizing halo ',h%m
+        if (isdebug()) print*,'Finalizing halo ',h%m
         if (associated(h%i)) then
-          deallocate(h%i)
+!          deallocate(h%i)
           nullify(h%i)
         endif
         if (h%initialized) then
@@ -914,7 +925,7 @@ logical recursive function signs(d,n) result(signsr)
       end function check_combined
                                                                         
 !> create and commit a joined halo
-!! @relates halos::halo
+!! @relates gabriel::halo
       subroutine create_joined_halo(self) 
         use mpi 
                                                                         
@@ -932,7 +943,7 @@ logical recursive function signs(d,n) result(signsr)
       end subroutine create_joined_halo 
 
 !> check validity of a halo for a variable
-!! @relates halos::halo
+!! @relates gabriel::halo
       function check_halo(self,v)
         logical :: check_halo
         class(halo),intent(in) :: self
@@ -953,7 +964,7 @@ logical recursive function signs(d,n) result(signsr)
       end function check_halo
 
 !> Function to return the MPI type
-!! @relates halos::halo
+!! @relates gabriel::halo
 !! @public
       function mpitype(self)
         class(halo), intent(in) :: self
