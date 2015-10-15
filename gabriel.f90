@@ -95,6 +95,7 @@ module gabriel
           procedure :: create => create_decomposition_      !< finalize the decomposition
           procedure :: update => update_decomposition_      !< update the decomposition
           procedure :: autocreate => create_decomposition_halo_      !< create autodecomposition
+          procedure :: transform => create_reshuffle_      !< create transformation
       end type decomposition          
 
 
@@ -447,18 +448,19 @@ module gabriel
         endif
 
         call MPI_Comm_size(d%comm_parent,commsize,ierr)
+
         do n=0,commsize-1
           
           if (count(d%recvranks.eq.n).gt.1) then
-            if(isdebug())print*,'n,d%recvs,count(d%recvranks.eq.n)=',n,d%recvs,count(d%recvranks.eq.n)
+            if(isdebug())print*,'n,d%recvs,count(d%recvranks.eq.n)=',n,d%recvs,count(d%recvranks(1:d%recvs).eq.n)
 !combine receive halos from the same rank into one combined type
             call h%combined(pack(d%recvhalos(1:d%recvs),d%recvranks(1:d%recvs).eq.n))
             cnt=count(d%recvranks(1:d%recvs).ne.n)
-            d%recvhalos(1:cnt)=pack(d%recvhalos,d%recvranks(1:d%recvs).ne.n)
-            d%recvdispls(1:cnt)=pack(d%recvdispls,d%recvranks(1:d%recvs).ne.n)
-            d%recvcnts(1:cnt)=pack(d%recvcnts,d%recvranks(1:d%recvs).ne.n)
-            d%recvweights(1:cnt)=pack(d%recvweights,d%recvranks(1:d%recvs).ne.n)
-            d%recvranks(1:cnt)=pack(d%recvranks,d%recvranks(1:d%recvs).ne.n)
+            d%recvhalos(1:cnt)=pack(d%recvhalos(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
+            d%recvdispls(1:cnt)=pack(d%recvdispls(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
+            d%recvcnts(1:cnt)=pack(d%recvcnts(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
+            d%recvweights(1:cnt)=pack(d%recvweights(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
+            d%recvranks(1:cnt)=pack(d%recvranks(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
             d%recvs=cnt
 !add combined type
             call d%add_recv(n,h)
@@ -469,11 +471,11 @@ module gabriel
             call h%combined(pack(d%sendhalos(1:d%sends),d%sendranks(1:d%sends).eq.n))
 !remove separate types from send arrays
             cnt=count(d%sendranks(1:d%sends).ne.n)
-            d%sendhalos(1:cnt)=pack(d%sendhalos,d%sendranks(1:d%sends).ne.n)
-            d%senddispls(1:cnt)=pack(d%senddispls,d%sendranks(1:d%sends).ne.n)
-            d%sendcnts(1:cnt)=pack(d%sendcnts,d%sendranks(1:d%sends).ne.n)
-            d%sendweights(1:cnt)=pack(d%sendweights,d%sendranks(1:d%sends).ne.n)
-            d%sendranks(1:cnt)=pack(d%sendranks,d%sendranks(1:d%sends).ne.n)
+            d%sendhalos(1:cnt)=pack(d%sendhalos(1:d%sends),d%sendranks(1:d%sends).ne.n)
+            d%senddispls(1:cnt)=pack(d%senddispls(1:d%sends),d%sendranks(1:d%sends).ne.n)
+            d%sendcnts(1:cnt)=pack(d%sendcnts(1:d%sends),d%sendranks(1:d%sends).ne.n)
+            d%sendweights(1:cnt)=pack(d%sendweights(1:d%sends),d%sendranks(1:d%sends).ne.n)
+            d%sendranks(1:cnt)=pack(d%sendranks(1:d%sends),d%sendranks(1:d%sends).ne.n)
             d%sends=cnt
 !add combined type
             call d%add_send(n,h)
@@ -652,7 +654,7 @@ module gabriel
         enddo
         do i=1,sendcount
           call h%subarray(v,lshalo(:,i),ushalo(:,i))
-          call d%add_send(recvs(i),h)
+          call d%add_send(sends(i),h)
         enddo
 
         deallocate(lshalo,ushalo,lrhalo,urhalo)
@@ -663,6 +665,137 @@ module gabriel
         call d%create
 
       end subroutine create_decomposition_halo_
+
+!> Automatically create a transformation with all halos.
+!! This is a collective MPI call.
+!! @relates gabriel::decomposition
+      subroutine create_reshuffle_(d,vfrom,vto,lower,upper,comm,offset)
+        use mpi
+        class(decomposition), intent(inout)            :: d    !> Resulting decomposition
+        real, dimension(..), allocatable, intent(in)   :: vfrom    !> variable to create halos for
+        real, dimension(..), allocatable, intent(in)   :: vto    !> variable to create halos for
+        integer, dimension(:), intent(in) :: lower             !> lower bound of active domain
+        integer, dimension(:), intent(in) :: upper             !> upper bound of active domain
+        integer, intent(in)               :: comm              !> communicator
+        integer, dimension(:), intent(in), optional :: offset  !> offset of array indices
+        integer, parameter            :: MAX_HALOS = 30
+        integer :: sendcount
+        integer :: recvcount
+        integer,dimension(MAX_HALOS) :: sends
+        integer,dimension(MAX_HALOS) :: recvs
+        integer :: r
+        integer,dimension(:),allocatable :: lb,ub,off
+        integer,dimension(:),allocatable :: to_lb,to_ub
+        integer,dimension(:),allocatable :: low,up
+        integer,dimension(:,:),allocatable :: lshalo,ushalo
+        integer,dimension(:,:),allocatable :: lrhalo,urhalo
+        integer,dimension(:,:),allocatable :: lowers,uppers
+        integer,dimension(:,:),allocatable :: lbs,ubs
+        integer,dimension(:,:),allocatable :: to_lbs,to_ubs
+        integer,dimension(:),allocatable :: global_low,global_up
+        logical,dimension(:),allocatable :: per
+        integer :: commsize,mpierr,commrank
+        integer :: i
+        type(halo) :: h
+
+        sendcount=0
+        recvcount=0
+
+        call debug("Creating transform..")
+        r=rank(vfrom)
+        if (rank(vto).ne.r) call error("Ranks of from- and to-arrays do not match!",12)
+        if (size(lower).ne.r) call error("Size of lower bound array not equal to rank!",12)
+        if (size(upper).ne.r) call error("Size of upper bound array not equal to rank!",13)
+
+        allocate(lb(r),ub(r))
+        allocate(low(r),up(r))
+        allocate(to_lb(r),to_ub(r))
+
+        lb=lbound(vfrom)
+        ub=ubound(vfrom)
+        low=lower
+        up=upper
+        to_lb=lbound(vto)
+        to_ub=ubound(vto)
+
+        if (any(low.lt.lb)) call error("Lower bound array incorrect!",14)
+        if (any(up.gt.ub)) call error("Upper bound array incorrect!",15)
+
+        allocate(off(r))
+        off=0
+        if (present(offset)) then
+          call error("Offset not yet implemented for transform!")
+          if (size(offset).ne.r) call error("Size of offset array not equal to rank!",16)
+          off=offset
+        endif
+
+        call MPI_Comm_Size(comm,commsize,mpierr)
+        call MPI_Comm_Rank(comm,commrank,mpierr)
+
+        allocate(lowers(r,commsize),uppers(r,commsize))
+        allocate(lbs(r,commsize),ubs(r,commsize))
+        allocate(to_lbs(r,commsize),to_ubs(r,commsize))
+
+!Of course, this could be implemented more efficiently..
+        call MPI_Allgather(low,r,MPI_INTEGER,lowers,r,MPI_INTEGER,comm,mpierr)
+        call MPI_Allgather(up,r,MPI_INTEGER,uppers,r,MPI_INTEGER,comm,mpierr)
+        call MPI_Allgather(lb,r,MPI_INTEGER,lbs,r,MPI_INTEGER,comm,mpierr)
+        call MPI_Allgather(ub,r,MPI_INTEGER,ubs,r,MPI_INTEGER,comm,mpierr)
+        call MPI_Allgather(to_lb,r,MPI_INTEGER,to_lbs,r,MPI_INTEGER,comm,mpierr)
+        call MPI_Allgather(to_ub,r,MPI_INTEGER,to_ubs,r,MPI_INTEGER,comm,mpierr)
+
+        allocate(lshalo(r,MAX_HALOS),ushalo(r,MAX_HALOS))
+        allocate(lrhalo(r,MAX_HALOS),urhalo(r,MAX_HALOS))
+        if(isdebug())print*,'commsize=',commsize
+        do i=1,commsize
+! check for overlap of active from-domains with other from-domains, if so, error!
+          if (i-1.ne.commrank .and. all(up.ge.lowers(:,i)).and.all(low.le.uppers(:,i))) then
+             print*,'upper=',up
+             print*,'uppers=',uppers(:,i)
+             print*,'lower=',low
+             print*,'lowers=',lowers(:,i)
+             call error("Overlap of active domains!")
+          endif
+! check for overlap of my active from-domain with other to-domains
+          if (all(up.ge.to_lbs(:,i)).and.all(low.le.to_ubs(:,i))) then
+! send overlapping data from my active domain
+            sendcount=sendcount+1
+            if (sendcount.gt.MAX_HALOS) call error("Too many sends!")
+            sends(sendcount)=i-1
+            lshalo(:,sendcount)=max(to_lbs(:,i),low)-off
+            ushalo(:,sendcount)=min(to_ubs(:,i),up)-off
+          endif
+! check for overlap of my full to-domain with active from-domains
+          if (all(to_ub.ge.lowers(:,i)).and.all(to_lb.le.uppers(:,i))) then
+! receive overlapping data from other active domain
+            recvcount=recvcount+1
+            if (recvcount.gt.MAX_HALOS) call error("Too many receives!")
+            recvs(recvcount)=i-1
+            lrhalo(:,recvcount)=max(to_lb,lowers(:,i))-off
+            urhalo(:,recvcount)=min(to_ub,uppers(:,i))-off
+          endif
+        enddo
+
+
+        call d%init(sendcount,recvcount,comm)
+        do i=1,recvcount
+          call h%subarray(vto,lrhalo(:,i),urhalo(:,i))
+          call d%add_recv(recvs(i),h)
+        enddo
+        do i=1,sendcount
+          call h%subarray(vfrom,lshalo(:,i),ushalo(:,i))
+          call d%add_send(sends(i),h)
+        enddo
+
+        deallocate(lshalo,ushalo,lrhalo,urhalo)
+        deallocate(lb,ub)
+        deallocate(low,up)
+        deallocate(lbs,ubs)
+        deallocate(to_lb,to_ub,to_lbs,to_ubs)
+        deallocate(lowers,uppers)
+        call d%create
+
+      end subroutine create_reshuffle_
 
 logical recursive function combo(c,d,n) result(combor)
 ! this function makes a switch in the logical array.

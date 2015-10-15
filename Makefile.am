@@ -4,8 +4,8 @@ libgabriel_la_SOURCES = gabriel.f90
 
 nodist_include_HEADERS = gabriel.$(FC_MODEXT)
 
-check_PROGRAMS = example1d example_auto example_auto_offset
-TESTS = example1d example_auto example_auto_offset
+check_PROGRAMS = example1d example_auto example_auto_offset example_transform
+TESTS = example1d example_auto example_auto_offset example_transform
 AM_DEFAULT_SOURCE_EXT = .f90
 LDADD = -lgabriel
 
