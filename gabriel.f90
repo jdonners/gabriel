@@ -111,7 +111,21 @@ module gabriel
       logical function isdebug()
 
         isdebug=.false.
-        if (verbose.eq.4) isdebug=.true.
+        if (verbose.ge.4) isdebug=.true.
+
+      end function
+
+      logical function isinfo()
+
+        isinfo=.false.
+        if (verbose.ge.3) isinfo=.true.
+
+      end function
+
+      logical function iserror()
+
+        iserror=.false.
+        if (verbose.ge.1) iserror=.true.
 
       end function
 
@@ -121,29 +135,57 @@ module gabriel
         if (isdebug()) print*,s
       end subroutine
 
+      subroutine error(errcode,s,err)
+        use mpi, only : MPI_Abort, MPI_COMM_WORLD
+        integer, intent(in)            :: errcode
+        character(len=*), optional     :: s
+        integer, intent(out), optional :: err
+
+        integer                        :: mpierr
+
+        if (iserror().and.present(s)) print*,'Error: ',s
+        if (.not.present(err)) then
+          call MPI_Abort(MPI_COMM_WORLD,errcode,mpierr)
+        else
+          err=errcode
+        endif
+        
+      end subroutine
+
+      logical function isnonzero(err)
+        integer,intent(in),optional :: err
+        isnonzero=.false.
+        if (present(err)) then
+          if (err.ne.0) isnonzero=.true.
+        endif
+
+      end function
+
 !> Create type to combine different halos.
 !! This is used to communicate a subarray of a larger array
 !! @relates gabriel::halo
-      subroutine create_subarray(self,array,starts,stops,subsizes)
+      subroutine create_subarray(self,array,starts,stops,subsizes,err)
         use mpi
 
         class(halo)                                             :: self
         real, intent(in), dimension(..), allocatable            :: array
         integer, intent(in), dimension(:)                       :: starts
         integer, intent(in), dimension(:), optional             :: stops,subsizes
+        integer, intent(out), optional                          :: err
 
         integer                 :: mpierr
         integer           :: ndim
         integer           :: realtype
         real              :: dummyreal
 
+        if (present(err)) err=0
 ! check arguments
         if (present(stops).and.present(subsizes)) then
-          print*,'Error: both stops and subsizes defined. Please define only one.'
-          call MPI_Abort(MPI_COMM_WORLD,4,mpierr)
+          call error(4,"both stops and subsizes defined. Please define only one.",err)
+          return
         elseif (.not.(present(stops).or.present(subsizes))) then
-          print*,'Error: Please define stops or subsizes.'
-          call MPI_Abort(MPI_COMM_WORLD,5,mpierr)
+          call error(5,"please define stops or subsizes.",err)
+          return
         endif
 
         ndim=rank(array)
@@ -166,29 +208,38 @@ module gabriel
 
 ! check bounds
           if (any(starts.lt.sub%lb)) then
-            print*,'Error: starts lower than lower bound of array'
-            print*,'   Starts     :',starts
-            print*,'   Lower bound:',sub%lb
-            call MPI_Abort(MPI_COMM_WORLD,6,mpierr)
+            if (iserror()) then
+              print*,'Error: starting indices lower than lower bound of array'
+              print*,'   Starts     :',starts
+              print*,'   Lower bound:',sub%lb
+            endif
+            call error(6,err=err)
+            return
           endif
           sub%starts=starts-sub%lb
 
           if (present(stops)) then
             if (any(stops.gt.sub%ub)) then
-              print*,'Error: stops higher than upper bound of array'
-              print*,'   Stops      :',stops
-              print*,'   Upper bound:',sub%ub
-              call MPI_Abort(MPI_COMM_WORLD,7,mpierr)
+              if (iserror()) then
+                print*,'Error: stopping indices higher than upper bound of array'
+                print*,'   Stops      :',stops
+                print*,'   Upper bound:',sub%ub
+              endif
+              call error(7,err=err)
+              return
             endif
             sub%subsizes=stops-starts+1
           endif
 
           if (present(subsizes)) then
             if (any(starts+subsizes-1.gt.sub%ub)) then
-              print*,'Error: starts+subsizes higher than upper bound of array'
-              print*,'   Starts+subsizes:',starts+subsizes
-              print*,'   Upper bound:',sub%ub
-              call MPI_Abort(MPI_COMM_WORLD,8,mpierr)
+              if (iserror()) then
+                print*,'Error: starts+subsizes higher than upper bound of array'
+                print*,'   Starts+subsizes:',starts+subsizes
+                print*,'   Upper bound:',sub%ub
+              endif
+              call error(8,err=err)
+              return
             endif
             sub%subsizes=subsizes
           endif
@@ -206,21 +257,24 @@ module gabriel
 !> Create type to combine different halos.
 !! This is usually used to communicate different parts of the same variable
 !! @relates gabriel::halo
-      subroutine create_combined(self,halos)
+      subroutine create_combined(self,halos,err)
         use mpi
 
-        class(halo)              :: self
-        type(halo),dimension(:)  :: halos
+        class(halo),intent(inout)            :: self
+        type(halo),dimension(:),intent(in)   :: halos
+        integer,intent(out),optional         :: err
 
         integer                  :: i,sz,mpierr
         integer,allocatable,dimension(:) :: hh,ones
         integer(kind=MPI_ADDRESS_KIND),allocatable,dimension(:) :: zeroes
 
+        if (present(err)) err=0
+
         sz=size(halos)
 ! check arguments
         if (sz.le.1) then
-          print*,'Error: Combined halo needs at least 2 halos as input.'
-          call MPI_Abort(MPI_COMM_WORLD,9,mpierr)
+          call error(9,"combined halo needs at least 2 halos as input.",err)
+          return
         endif
 
 ! allocate subarray halo type
@@ -251,21 +305,23 @@ module gabriel
 !! @param self halo object
 !! @param n number of variables to communicate the halos
 !! @relates gabriel::halo
-      subroutine create_joined(self,n)
+      subroutine create_joined(self,n,err)
 ! The resulting halo is based on absolute addresses, so it will be communicated
 ! with MPI_BOTTOM as both sending and receiving buffers.
         use mpi
 
-        class(halo)               :: self
+        class(halo),intent(inout) :: self
         integer,intent(in)        :: n
+        integer,intent(out),optional :: err
 
         type(halo)                :: h
         integer                   :: i,mpierr
 
+        if (present(err)) err=0
 ! check arguments
         if (n.lt.2) then
-          print*,'Error: Joined halo needs at least room for 2 halo variables as input.'
-          call MPI_Abort(MPI_COMM_WORLD,10,mpierr)
+          call error(10,'Error: Joined halo needs at least room for 2 halo variables as input.',err)
+          return
         endif
 
 ! allocate subarray halo type
@@ -285,13 +341,15 @@ module gabriel
 
 !> print a halo
 !! @relates gabriel::halo
-      subroutine print_halo(self)
+      subroutine print_halo(self,err)
         class(halo),intent(in) :: self
+        integer,intent(out),optional :: err
 
+        if (present(err)) err=0
         call debug('print_halo')
         select type(h=>self%i)
         type is (subarray)
-          call h%print
+          call h%print(err=err)
         class default
           if (h%initialized) print*,'is initialized. mpitype=',h%m
         end select
@@ -301,8 +359,11 @@ module gabriel
 !> print a subarray
 !! @relates gabriel::subarray
 !! @private
-      subroutine print_subarray(self)
+      subroutine print_subarray(self,err)
         class(subarray),intent(in) :: self
+        integer,intent(out),optional :: err
+
+        if (present(err)) err=0
 
         call debug('print_subarray')
         print*,'ndim=',self%ndim
@@ -312,41 +373,48 @@ module gabriel
 
 !> add a variable to a joined halo type
 !! @relates gabriel::subarray
-      subroutine add_joined(self,v)
+      subroutine add_joined(self,v,err)
         use mpi
 
         class(halo), intent(inout) :: self
         real, dimension(:,:,:), allocatable, intent(in)    :: v
+        integer, intent(out), optional :: err
                                                                         
         integer mpierr,n 
 
+      if (present(err)) err=0
       select type(j=>self%i)
       type is (joined)
         if (.not.j%is_valid_halo(v)) then
-          print*,"Halo is not valid for variable" 
-          call MPI_Abort(MPI_COMM_WORLD,11,mpierr) 
+          call error(11,"Halo is not valid for variable",err)
+          return
         endif        
 
         j%n=j%n+1
         if (j%n.gt.j%length) then 
-          print*,"Too many halos for joined halo type" 
-          call MPI_Abort(MPI_COMM_WORLD,12,mpierr) 
+          call error(12,"Too many halos for joined halo type",err)
+          return
         endif 
         call MPI_Get_address(v,j%variables(n),mpierr) 
       class default
-          print*,"This is not a joined halo type"
-          call MPI_Abort(MPI_COMM_WORLD,13,mpierr) 
+          call error(13,"This is not a joined halo type",err)
+          return
       end select
                                                                         
       end subroutine add_joined
 
 !> Initialize a decomposition
 !! @relates gabriel::decomposition
-      subroutine init_decomposition_(d,sends,recvs,comm)
+      subroutine init_decomposition_(d,sends,recvs,comm,err)
         class(decomposition), intent(out)                  :: d
         integer, intent(in)                                :: sends,recvs,comm
+        integer, intent(out), optional                     :: err
 
-        d%comm_parent=comm
+        integer mpierr
+
+        if (present(err)) err=0
+
+        call MPI_Comm_dup(comm,d%comm_parent,mpierr)
         d%maxsends=sends
         d%maxrecvs=recvs
         d%sends=0
@@ -372,18 +440,20 @@ module gabriel
 
 !> Add a receive to a decomposition
 !! @relates gabriel::decomposition
-      subroutine add_decomposition_recv_(d,rank,h)
+      subroutine add_decomposition_recv_(d,rank,h,err)
         use mpi
         class(decomposition), intent(inout)                 :: d
         type(halo), intent(in)                             :: h
         integer, intent(in)                                :: rank
+        integer, intent(out), optional                     :: err
 
         integer n,mpierr
 
+        if (present(err)) err=0
         n=d%recvs+1
         if (n.gt.d%maxrecvs) then
-          print*,"Exceeded maximum number of receiving neighbours!"
-          call MPI_Abort(MPI_COMM_WORLD,2,mpierr)
+          call error(2,"Exceeded maximum number of receiving neighbours!",err)
+          return
         endif
         
         d%recvranks(n)=rank
@@ -397,18 +467,20 @@ module gabriel
 
 !> Add a send to a decomposition
 !! @relates gabriel::decomposition
-      subroutine add_decomposition_send_(d,rank,h)
+      subroutine add_decomposition_send_(d,rank,h,err)
         use mpi
         class(decomposition), intent(inout)                 :: d
         type(halo), intent(in)                             :: h
         integer, intent(in)                                :: rank
+        integer, intent(out), optional                     :: err
 
         integer :: n,mpierr
 
+        if (present(err)) err=0
         n=d%sends+1
         if (n.gt.d%maxsends) then
-          print*,"Exceeded maximum number of sending neighbours!"
-          call MPI_Abort(MPI_COMM_WORLD,1,mpierr)
+          call error(1,"Exceeded maximum number of sending neighbours!",err)
+          return
         endif
 
         d%sendranks(n)=rank
@@ -422,11 +494,12 @@ module gabriel
 
 !> Commit a decomposition
 !! @relates gabriel::decomposition
-      subroutine create_decomposition_(d,i,reorder)
+      subroutine create_decomposition_(d,i,reorder,err)
         use mpi
         class(decomposition), intent(inout)           :: d            !> decomposition type
         integer, optional, intent(in)                 :: i            !> MPI_Info, default MPI_INFO_NULL
         logical, optional, intent(in)                 :: reorder      !> reorder, default .true.
+        integer, intent(out), optional                 :: err          !> error indicator
 
         integer info,ierr
         integer commsize
@@ -435,6 +508,7 @@ module gabriel
 
         type(halo) h
 
+        if (present(err)) err=0
         if (present(i)) then
           info=i
         else
@@ -454,7 +528,8 @@ module gabriel
           if (count(d%recvranks.eq.n).gt.1) then
             if(isdebug())print*,'n,d%recvs,count(d%recvranks.eq.n)=',n,d%recvs,count(d%recvranks(1:d%recvs).eq.n)
 !combine receive halos from the same rank into one combined type
-            call h%combined(pack(d%recvhalos(1:d%recvs),d%recvranks(1:d%recvs).eq.n))
+            call h%combined(pack(d%recvhalos(1:d%recvs),d%recvranks(1:d%recvs).eq.n),err=err)
+            if (isnonzero(err))return
             cnt=count(d%recvranks(1:d%recvs).ne.n)
             d%recvhalos(1:cnt)=pack(d%recvhalos(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
             d%recvdispls(1:cnt)=pack(d%recvdispls(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
@@ -463,12 +538,14 @@ module gabriel
             d%recvranks(1:cnt)=pack(d%recvranks(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
             d%recvs=cnt
 !add combined type
-            call d%add_recv(n,h)
+            call d%add_recv(n,h,err=err)
+            if (isnonzero(err))return
           endif
           if (count(d%sendranks.eq.n).gt.1) then
             if(isdebug())print*,'n,d%sends,count(d%sendranks.eq.n)=',n,d%sends,count(d%sendranks.eq.n)
 !combine send halos to the same rank into one combined type
-            call h%combined(pack(d%sendhalos(1:d%sends),d%sendranks(1:d%sends).eq.n))
+            call h%combined(pack(d%sendhalos(1:d%sends),d%sendranks(1:d%sends).eq.n),err=err)
+            if (isnonzero(err))return
 !remove separate types from send arrays
             cnt=count(d%sendranks(1:d%sends).ne.n)
             d%sendhalos(1:cnt)=pack(d%sendhalos(1:d%sends),d%sendranks(1:d%sends).ne.n)
@@ -478,15 +555,16 @@ module gabriel
             d%sendranks(1:cnt)=pack(d%sendranks(1:d%sends),d%sendranks(1:d%sends).ne.n)
             d%sends=cnt
 !add combined type
-            call d%add_send(n,h)
+            call d%add_send(n,h,err=err)
+            if (isnonzero(err))return
           endif
         enddo
 
         call MPI_Dist_graph_create_adjacent(d%comm_parent,d%recvs,d%recvranks,d%recvweights, &
      &           d%sends,d%sendranks,d%sendweights,info,mpi_reorder,d%comm,ierr)
         if (ierr.ne.MPI_SUCCESS) then
-          print*,'MPI_Dist_graph_create_adjacent error: ',ierr
-          call MPI_Abort(MPI_COMM_WORLD,3,ierr)
+          call error(3,"MPI_Dist_graph_create_adjacent error",err)
+          return
         endif
 
       end subroutine create_decomposition_
@@ -495,7 +573,7 @@ module gabriel
 !! This is a collective MPI call.
 !! @relates gabriel::decomposition
 !      subroutine create_decomposition_halo_(d,v,lower,upper,comm,offset,periodic,lower_global,upper_global)
-      subroutine create_decomposition_halo_(d,v,lower,upper,comm,offset,periodic)
+      subroutine create_decomposition_halo_(d,v,lower,upper,comm,offset,periodic,err)
         use mpi
         class(decomposition), intent(inout)            :: d    !> Resulting decomposition
         real, dimension(..), allocatable, intent(in)   :: v    !> variable to create halos for
@@ -504,6 +582,7 @@ module gabriel
         integer, intent(in)               :: comm              !> communicator
         integer, dimension(:), intent(in), optional :: offset  !> offset of array indices
         logical, dimension(:), intent(in), optional :: periodic       !> periodicity of global domain
+        integer, intent(out), optional :: err  !> error indicator
 !        integer, dimension(:), intent(in), optional :: global_lower   !> lower bound of global domain
 !        integer, dimension(:), intent(in), optional :: global_upper   !> upper bound of global domain
 
@@ -526,17 +605,27 @@ module gabriel
         integer :: i
         type(halo) :: h
 
+        if (present(err)) err=0
         sendcount=0
         recvcount=0
 
         r=rank(v)
-        if (size(lower).ne.r) call error("Size of lower bound array not equal to rank!",12)
-        if (size(upper).ne.r) call error("Size of upper bound array not equal to rank!",13)
+        if (size(lower).ne.r) then
+          call error(12,"Size of lower bound array not equal to rank!",err)
+          return
+        endif
+        if (size(upper).ne.r) then
+          call error(13,"Size of upper bound array not equal to rank!",err)
+          return
+        endif
 
         allocate(off(r))
         off=0
         if (present(offset)) then
-          if (size(offset).ne.r) call error("Size of offset array not equal to rank!",16)
+          if (size(offset).ne.r) then
+            call error(16,"Size of offset array not equal to rank!",err)
+            return
+          endif
           off=offset
         endif
 
@@ -548,12 +637,18 @@ module gabriel
         low=lower+off
         up=upper+off
 
-        if (any(low.lt.lb)) call error("Lower bound array incorrect!",14)
-        if (any(up.gt.ub)) call error("Upper bound array incorrect!",15)
+        if (any(low.lt.lb)) then
+          call error(14,"Lower bound array incorrect!")
+          return
+        endif
+        if (any(up.gt.ub)) then
+          call error(15,"Upper bound array incorrect!")
+          return
+        endif
 
 ! Possibly a check with a warning to see if the active domain equals the variable bounds, i.e. no halo regions
 
-        call MPIcheck
+        call MPIcheck(err)
         call MPI_Comm_Size(comm,commsize,mpierr)
         call MPI_Comm_Rank(comm,commrank,mpierr)
 
@@ -572,17 +667,21 @@ module gabriel
         if (i-1.ne.commrank) then  
 ! check for overlap of active domains, if so, error!
           if (all(up.ge.lowers(:,i)).and.all(low.le.uppers(:,i))) then
-             print*,'upper=',up
-             print*,'uppers=',uppers(:,i)
-             print*,'lower=',low
-             print*,'lowers=',lowers(:,i)
-             call error("Overlap of active domains!")
+             if (iserror())print*,'upper=',up
+             if (iserror())print*,'uppers=',uppers(:,i)
+             if (iserror())print*,'lower=',low
+             if (iserror())print*,'lowers=',lowers(:,i)
+             call error(16,"Overlap of active domains!",err)
+             return
           endif
 ! check for overlap of my active domain with other domains
           if (all(up.ge.lbs(:,i)).and.all(low.le.ubs(:,i))) then
 ! send overlapping data from my active domain
             sendcount=sendcount+1
-            if (sendcount.gt.MAX_HALOS) call error("Too many sends!")
+            if (sendcount.gt.MAX_HALOS) then
+              call error(17,"Too many sends!",err)
+              return
+            endif
             sends(sendcount)=i-1
             lshalo(:,sendcount)=max(lbs(:,i),low)-off
             ushalo(:,sendcount)=min(ubs(:,i),up)-off
@@ -591,7 +690,10 @@ module gabriel
           if (all(ub.ge.lowers(:,i)).and.all(lb.le.uppers(:,i))) then
 ! receive overlapping data from other active domain
             recvcount=recvcount+1
-            if (recvcount.gt.MAX_HALOS) call error("Too many receives!")
+            if (recvcount.gt.MAX_HALOS) then
+              call error(18,"Too many receives!",err)
+              return
+            endif
             recvs(recvcount)=i-1
             lrhalo(:,recvcount)=max(lb,lowers(:,i))-off
             urhalo(:,recvcount)=min(ub,uppers(:,i))-off
@@ -606,7 +708,7 @@ module gabriel
           allocate(global_low(r),global_up(r))
           global_low=minval(lowers,dim=2)
           global_up=maxval(uppers,dim=2)
-          if (verbose.eq.1.and.commrank.eq.0) then
+          if (isinfo().and.commrank.eq.0) then
             print*,'Requested periodicity: ',periodic
             print*,'Global lower bounds: ',global_low
             print*,'Global upper bounds: ',global_up
@@ -623,7 +725,10 @@ module gabriel
             if (all(up.ge.lbs(:,i)+shf).and.all(low.le.ubs(:,i)+shf)) then
 ! send overlapping data from my active domain
               sendcount=sendcount+1
-              if (sendcount.gt.MAX_HALOS) call error("Too many sends!")
+              if (sendcount.gt.MAX_HALOS) then
+                call error(19,"Too many sends!",err)
+                return
+              endif
               sends(sendcount)=i-1
               lshalo(:,sendcount)=max(lbs(:,i)+shf,low)-off
               ushalo(:,sendcount)=min(ubs(:,i)+shf,up)-off
@@ -633,7 +738,10 @@ module gabriel
             if (all(ub.ge.lowers(:,i)-shf).and.all(lb.le.uppers(:,i)-shf)) then
 ! receive overlapping data from other active domain
               recvcount=recvcount+1
-              if (recvcount.gt.MAX_HALOS) call error("Too many receives!")
+              if (recvcount.gt.MAX_HALOS) then
+                call error(20,"Too many receives!",err)
+                return
+              endif
               recvs(recvcount)=i-1
               lrhalo(:,recvcount)=max(lb,lowers(:,i)-shf)-off
               urhalo(:,recvcount)=min(ub,uppers(:,i)-shf)-off
@@ -647,14 +755,19 @@ module gabriel
           deallocate(global_low,global_up,shf,per)
         endif
 
-        call d%init(sendcount,recvcount,comm)
+        call d%init(sendcount,recvcount,comm,err=err)
+        if (isnonzero(err)) return
         do i=1,recvcount
-          call h%subarray(v,lrhalo(:,i),urhalo(:,i))
-          call d%add_recv(recvs(i),h)
+          call h%subarray(v,lrhalo(:,i),urhalo(:,i),err=err)
+          if (isnonzero(err)) return
+          call d%add_recv(recvs(i),h,err=err)
+          if (isnonzero(err)) return
         enddo
         do i=1,sendcount
-          call h%subarray(v,lshalo(:,i),ushalo(:,i))
-          call d%add_send(sends(i),h)
+          call h%subarray(v,lshalo(:,i),ushalo(:,i),err=err)
+          if (isnonzero(err)) return
+          call d%add_send(sends(i),h,err=err)
+          if (isnonzero(err)) return
         enddo
 
         deallocate(lshalo,ushalo,lrhalo,urhalo)
@@ -662,14 +775,14 @@ module gabriel
         deallocate(low,up)
         deallocate(lbs,ubs)
         deallocate(lowers,uppers)
-        call d%create
+        call d%create(err=err)
 
       end subroutine create_decomposition_halo_
 
 !> Automatically create a transformation with all halos.
 !! This is a collective MPI call.
 !! @relates gabriel::decomposition
-      subroutine create_reshuffle_(d,vfrom,vto,lower,upper,comm,offset)
+      subroutine create_reshuffle_(d,vfrom,vto,lower,upper,comm,offset,err)
         use mpi
         class(decomposition), intent(inout)            :: d    !> Resulting decomposition
         real, dimension(..), allocatable, intent(in)   :: vfrom    !> variable to create halos for
@@ -678,6 +791,7 @@ module gabriel
         integer, dimension(:), intent(in) :: upper             !> upper bound of active domain
         integer, intent(in)               :: comm              !> communicator
         integer, dimension(:), intent(in), optional :: offset  !> offset of array indices
+        integer, intent(out), optional :: err  !> error indicator
         integer, parameter            :: MAX_HALOS = 30
         integer :: sendcount
         integer :: recvcount
@@ -698,14 +812,24 @@ module gabriel
         integer :: i
         type(halo) :: h
 
+        if (present(err)) err=0
         sendcount=0
         recvcount=0
 
         call debug("Creating transform..")
         r=rank(vfrom)
-        if (rank(vto).ne.r) call error("Ranks of from- and to-arrays do not match!",12)
-        if (size(lower).ne.r) call error("Size of lower bound array not equal to rank!",12)
-        if (size(upper).ne.r) call error("Size of upper bound array not equal to rank!",13)
+        if (rank(vto).ne.r) then
+          call error(21,"Ranks of from- and to-arrays do not match!",err)
+          return
+        endif
+        if (size(lower).ne.r) then
+          call error(22,"Size of lower bound array not equal to rank!",err)
+          return
+        endif
+        if (size(upper).ne.r) then
+          call error(23,"Size of upper bound array not equal to rank!",err)
+          return
+        endif
 
         allocate(lb(r),ub(r))
         allocate(low(r),up(r))
@@ -718,14 +842,24 @@ module gabriel
         to_lb=lbound(vto)
         to_ub=ubound(vto)
 
-        if (any(low.lt.lb)) call error("Lower bound array incorrect!",14)
-        if (any(up.gt.ub)) call error("Upper bound array incorrect!",15)
+        if (any(low.lt.lb)) then
+          call error(24,"Lower bound array incorrect!",err)
+          return
+        endif
+        if (any(up.gt.ub)) then
+          call error(25,"Upper bound array incorrect!",err)
+          return
+        endif
 
         allocate(off(r))
         off=0
         if (present(offset)) then
-          call error("Offset not yet implemented for transform!")
-          if (size(offset).ne.r) call error("Size of offset array not equal to rank!",16)
+          call error(26,"Offset not yet implemented for transform!",err)
+          return
+          if (size(offset).ne.r) then
+            call error(27,"Size of offset array not equal to rank!",err)
+            return
+          endif
           off=offset
         endif
 
@@ -750,17 +884,21 @@ module gabriel
         do i=1,commsize
 ! check for overlap of active from-domains with other from-domains, if so, error!
           if (i-1.ne.commrank .and. all(up.ge.lowers(:,i)).and.all(low.le.uppers(:,i))) then
-             print*,'upper=',up
-             print*,'uppers=',uppers(:,i)
-             print*,'lower=',low
-             print*,'lowers=',lowers(:,i)
-             call error("Overlap of active domains!")
+             if(isinfo())print*,'upper=',up
+             if(isinfo())print*,'uppers=',uppers(:,i)
+             if(isinfo())print*,'lower=',low
+             if(isinfo())print*,'lowers=',lowers(:,i)
+             call error(28,"Overlap of active domains!")
+             return
           endif
 ! check for overlap of my active from-domain with other to-domains
           if (all(up.ge.to_lbs(:,i)).and.all(low.le.to_ubs(:,i))) then
 ! send overlapping data from my active domain
             sendcount=sendcount+1
-            if (sendcount.gt.MAX_HALOS) call error("Too many sends!")
+            if (sendcount.gt.MAX_HALOS) then
+              call error(29,"Too many sends!",err)
+              return
+            endif
             sends(sendcount)=i-1
             lshalo(:,sendcount)=max(to_lbs(:,i),low)-off
             ushalo(:,sendcount)=min(to_ubs(:,i),up)-off
@@ -769,22 +907,29 @@ module gabriel
           if (all(to_ub.ge.lowers(:,i)).and.all(to_lb.le.uppers(:,i))) then
 ! receive overlapping data from other active domain
             recvcount=recvcount+1
-            if (recvcount.gt.MAX_HALOS) call error("Too many receives!")
+            if (recvcount.gt.MAX_HALOS) then
+              call error(30,"Too many receives!",err)
+              return
+            endif
             recvs(recvcount)=i-1
             lrhalo(:,recvcount)=max(to_lb,lowers(:,i))-off
             urhalo(:,recvcount)=min(to_ub,uppers(:,i))-off
           endif
         enddo
 
-
-        call d%init(sendcount,recvcount,comm)
+        call d%init(sendcount,recvcount,comm,err=err)
+        if (isnonzero(err)) return
         do i=1,recvcount
-          call h%subarray(vto,lrhalo(:,i),urhalo(:,i))
-          call d%add_recv(recvs(i),h)
+          call h%subarray(vto,lrhalo(:,i),urhalo(:,i),err=err)
+          if (isnonzero(err)) return
+          call d%add_recv(recvs(i),h,err=err)
+          if (isnonzero(err)) return
         enddo
         do i=1,sendcount
-          call h%subarray(vfrom,lshalo(:,i),ushalo(:,i))
-          call d%add_send(sends(i),h)
+          call h%subarray(vfrom,lshalo(:,i),ushalo(:,i),err=err)
+          if (isnonzero(err)) return
+          call d%add_send(sends(i),h,err=err)
+          if (isnonzero(err)) return
         enddo
 
         deallocate(lshalo,ushalo,lrhalo,urhalo)
@@ -793,7 +938,7 @@ module gabriel
         deallocate(lbs,ubs)
         deallocate(to_lb,to_ub,to_lbs,to_ubs)
         deallocate(lowers,uppers)
-        call d%create
+        call d%create(err=err)
 
       end subroutine create_reshuffle_
 
@@ -875,45 +1020,56 @@ logical recursive function signs(d,n) result(signsr)
   return
   end function
 
-      subroutine MPIcheck
+      subroutine MPIcheck(err)
         use mpi
+        integer, intent(out),optional :: err
         logical initialized,finalized
         integer ierr
 
+        if (present(err)) err=0
         call MPI_Initialized(initialized,ierr)
-        if (.not.initialized) call error ('MPI library not yet initialized')
+        if (.not.initialized) then
+          call error(31,"MPI library not yet initialized",err)
+          return
+        endif
         call MPI_Finalized(finalized,ierr)
-        if (finalized) call error ('MPI library already finalized')
+        if (finalized) then
+          call error(32,"MPI library already finalized",err)
+          return
+        endif
 
       end subroutine
       
 !> Update a decomposition
 !! @relates gabriel::decomposition
-      subroutine update_decomposition_(self,vsend,vrecv)
+      subroutine update_decomposition_(self,vsend,vrecv,err)
       use mpi
       use iso_c_binding, only : c_loc,c_f_pointer
 
       real, dimension(..), allocatable, target, intent(in)    :: vsend
       real, dimension(..), allocatable, target, intent(inout) :: vrecv
       class(decomposition), intent(in)                    :: self
+      integer, intent(out), optional                      :: err
 
       real,dimension(:),pointer :: psend,precv
       integer mpierr,status(MPI_STATUS_SIZE)
       integer i
+
+      if (present(err)) err=0
 
       call debug('update_decomposition')
       if (check) then
         do i=1,self%sends
           if (isdebug()) print*,'i=',i
           if (.not.self%sendhalos(i)%is_valid_halo(vsend)) then
-            print*,'Not valid '
-            call MPI_Abort(MPI_COMM_WORLD,33,mpierr)
+            call error(33,"Send halo not valid",err)
+            return
           endif 
         enddo
         do i=1,self%recvs
           if (.not.self%recvhalos(i)%is_valid_halo(vrecv)) then
-            print*,'Not valid '
-            call MPI_Abort(MPI_COMM_WORLD,34,mpierr)
+            call error(34,"Receive halo not valid",err)
+            return
           endif 
         enddo
       endif
@@ -924,22 +1080,6 @@ logical recursive function signs(d,n) result(signsr)
      &  precv,self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
                    
       end subroutine update_decomposition_
-
-      subroutine error(s,e)
-        use mpi 
-        character(len=*),intent(in) :: s
-        integer, intent(in), optional :: e
-
-        integer mpierr
-
-        print*,s
-        if (present(e)) then        
-          call MPI_Abort(MPI_COMM_WORLD,e,mpierr)
-        else
-          call MPI_Abort(MPI_COMM_WORLD,99,mpierr)
-        endif
-
-      end subroutine error
 
 !> finalize halo
 !! @private
@@ -1105,8 +1245,10 @@ logical recursive function signs(d,n) result(signsr)
       function mpitype(self)
         class(halo), intent(in) :: self
         integer :: mpitype
+        integer :: mpierr
 
-        mpitype=self%m
+       call MPI_Type_dup(self%m,mpitype,mpierr)
+
       end function mpitype
 
 end module
