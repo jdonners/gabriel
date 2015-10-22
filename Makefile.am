@@ -19,6 +19,6 @@ dist-hook:
 
 # Clean module files
 mostlyclean-local:
-	-test -z "$(FC_MODEXT)" || rm -f halos.$(FC_MODEXT)
+	-test -z "$(FC_MODEXT)" || rm -f gabriel.$(FC_MODEXT)
 
 
