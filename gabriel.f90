@@ -136,7 +136,7 @@ module gabriel
       end subroutine
 
       subroutine error(errcode,s,err)
-        use mpi, only : MPI_Abort, MPI_COMM_WORLD
+        use mpi
         integer, intent(in)            :: errcode
         character(len=*), optional     :: s
         integer, intent(out), optional :: err
