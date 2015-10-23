@@ -12,13 +12,29 @@ The requirements to compile the gabriel library are
   - Intel 16.0.0 or newer
   - GNU gfortran 4.9 or newer
   - recent Cray Fortran
-  - IBM XL Fortran, can anyone test this?
+  - recent IBM XL Fortran, can anyone test this?
 * a recent MPI library supporting the MPI-3.0 standard:
   - Intel MPI 5.0.0 or newer
-  - MPICH2 3.0.4 or newer
+  - MPICH2 3.0.4 or newer (and maybe older)
+  - OpenMPI 1.8.4 or newer (and maybe older)
   - recent Cray MPI
-  - IBM POE, can anyone test this?
+  - recent IBM POE, can anyone test this?
 
+It's recommended to download a release version of gabriel. A example
+of a build of the library is 
+
+    ./configure                    # use --enable-real8 for REAL*8 arrays
+    make
+    make install prefix=[prefix]
+
+where [prefix] is the directory where you want to install the library
+and the Fortran module.
+
+Should you want to build from the repository, you'll need recent versions
+of the GNU autotools as well.
+
+Usage
+-----
 There are several examples included in the distribution.
 
 The library exposes two derived types to the user: HALO and DECOMPOSITION.

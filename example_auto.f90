@@ -2,6 +2,7 @@ program ex
 
   use gabriel
   use MPI
+  implicit none
 
   integer,parameter :: n=10
   integer,parameter :: s=2

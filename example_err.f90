@@ -2,6 +2,7 @@ program ex1d
 
   use gabriel
   use MPI
+  implicit none
 
   interface operator(//)
     function string_and_integer(s,i)
