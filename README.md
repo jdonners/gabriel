@@ -4,9 +4,20 @@ Gabriel is a Fortran library to simplify the use of MPI.
 It offers verification, ease of use and a high performance, 
 especially for models on regular grids.
 
-Requirements:
-  -recent Fortran compiler (Intel 16.0.0, GNU gfortran 4.9, Cray ..)
-  -recent MPI library supporting the MPI-3.0 standard
+Compilation
+-----------
+The requirements to compile the gabriel library are
+
+* a recent Fortran compiler supporting Fortran 2003 and TS 29113:
+  - Intel 16.0.0 or newer
+  - GNU gfortran 4.9 or newer
+  - recent Cray Fortran
+  - IBM XL Fortran, can anyone test this?
+* a recent MPI library supporting the MPI-3.0 standard:
+  - Intel MPI 5.0.0 or newer
+  - MPICH2 3.0.4 or newer
+  - recent Cray MPI
+  - IBM POE, can anyone test this?
 
 There are several examples included in the distribution.
 
