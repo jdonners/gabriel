@@ -5,8 +5,8 @@ It offers verification, ease of use and a high performance,
 especially for models on regular grids.
 
 Requirements:
--recent Fortran compiler (Intel 16.0.0, GNU gfortran 4.9, Cray ..)
--recent MPI library supporting the MPI-3.0 standard
+  -recent Fortran compiler (Intel 16.0.0, GNU gfortran 4.9, Cray ..)
+  -recent MPI library supporting the MPI-3.0 standard
 
 There are several examples included in the distribution.
 
@@ -17,23 +17,23 @@ I'll explain the most important procedure in some more detail: autocreate.
 
 In a regular 2D decomposition, each rank has 8 neighboring ranks:
 
-.-------.-------.-------.
-|       |       |       |
-|   1   |   2   |   3   |
-|      X|XXXXXXX|X      |
-.-------.-------.-------.
-|      X|OOOOOOO|X      |
-|   4  X|OOO5OOO|X  6   |
-|      X|OOOOOOO|X      |
-.-------.-------.-------.
-|      X|XXXXXXX|X      |
-|   7   |   8   |   9   |
-|       |       |       |
-.-------.-------.-------.
+    .-------.-------.-------.
+    |       |       |       |
+    |   1   |   2   |   3   |
+    |      X|XXXXXXX|X      |
+    .-------.-------.-------.
+    |      X|OOOOOOO|X      |
+    |   4  X|OOO5OOO|X  6   |
+    |      X|OOOOOOO|X      |
+    .-------.-------.-------.
+    |      X|XXXXXXX|X      |
+    |   7   |   8   |   9   |
+    |       |       |       |
+    .-------.-------.-------.
 
-[1-9] - rank
-    O - local domain for rank 5
-    X - halo regions for rank 5
+    [1-9] - rank
+        O - local domain for rank 5
+        X - halo regions for rank 5
 
 The routine autocreate sets up all communication to update all halo regions of a 
 variable. Note that this includes the elements located on diagonal ranks. The
@@ -44,45 +44,45 @@ array that are calculated locally and the communicator of all processes that
 will calculate part of the full domain. E.g. for the simple case of a 1D array, 
 it would be something like:
 
-MPI rank                0          1
-Array A              0123456    3456789
-Locally computed     .....        .....
-Halo region               ..    ..
+    MPI rank                0          1
+    Array A              0123456    3456789
+    Locally computed     .....        .....
+    Halo region               ..    ..
 
 So rank 0 calculates indices 0-4 and rank 1 calculates indices 5-9.
 Both ranks need some data from the neighbor in the halo region
 to be able to calculate its local indices. This would look something like:
 
-program one_two
-use mpi
-use gabriel
+    program one_two
+      use mpi
+      use gabriel
 
-real,dimension(:),allocatable :: a
-type(decomposition) :: dec
-integer ierr,rank
+      real,dimension(:),allocatable :: a
+      type(decomposition) :: dec
+      integer ierr,rank
 
-call MPI_Init(ierr)
-call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
+      call MPI_Init(ierr)
+      call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
 
-if (rank.eq.0) then
-  allocate(a(0:6))
-  a=0.0
-  call dec%autocreate(a,(/0/),(/4/),MPI_COMM_WORLD)
-endif
-if (rank.eq.1) then
-  allocate(a(3:9))
-  a=1.0
-  call dec%autocreate(a,(/5/),(/9/),MPI_COMM_WORLD)
-endif
+      if (rank.eq.0) then
+        allocate(a(0:6))
+        a=0.0
+        call dec%autocreate(a,(/0/),(/4/),MPI_COMM_WORLD)
+      endif
+      if (rank.eq.1) then
+        allocate(a(3:9))
+        a=1.0
+        call dec%autocreate(a,(/5/),(/9/),MPI_COMM_WORLD)
+      endif
 
-call dec%update(a,a)
-wcrite(*,'(a,i2,a,5f5.1)')'Rank=',rank,'   My values:=',a
-end program
+      call dec%update(a,a)
+      write(*,'(a,i2,a,5f5.1)')'Rank=',rank,'   My values:=',a
+    end program
 
 and the output of the program will look like:
 
-Rank= 0   My values:=  0.0  0.0  0.0  0.0  0.0  1.0  1.0
-Rank= 1   My values:=  0.0  0.0  1.0  1.0  1.0  1.0  1.0
+    Rank= 0   My values:=  0.0  0.0  0.0  0.0  0.0  1.0  1.0
+    Rank= 1   My values:=  0.0  0.0  1.0  1.0  1.0  1.0  1.0
 
 And this works analogously for multi-dimensional arrays. 
 
