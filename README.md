@@ -16,11 +16,10 @@ The requirements to compile the gabriel library are
 * a recent MPI library supporting the MPI-3.0 standard:
   - Intel MPI 5.0.0 or newer
   - MPICH2 3.0.4 or newer (and maybe older)
-  - OpenMPI 1.8.4 or newer (and maybe older)
   - recent Cray MPI
   - recent IBM POE, can anyone test this?
 
-It's recommended to download a release version of gabriel. A example
+It's recommended to download a release version of gabriel. An example
 of a build of the library is 
 
     ./configure                    # use --enable-real8 for REAL*8 arrays
