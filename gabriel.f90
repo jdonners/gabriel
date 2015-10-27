@@ -678,6 +678,9 @@ module gabriel
           if (all(up.ge.lbs(:,i)).and.all(low.le.ubs(:,i))) then
 ! send overlapping data from my active domain
             sendcount=sendcount+1
+             if (isinfo())print*,'rank to send to=',i-1
+             if (isinfo())print*,'lower=',max(lbs(:,i),low)-off
+             if (isinfo())print*,'upper=',min(ubs(:,i),up)-off
             if (sendcount.gt.MAX_HALOS) then
               call error(17,"Too many sends!",err)
               return
@@ -690,6 +693,9 @@ module gabriel
           if (all(ub.ge.lowers(:,i)).and.all(lb.le.uppers(:,i))) then
 ! receive overlapping data from other active domain
             recvcount=recvcount+1
+             if (isinfo())print*,'rank to receive from=',i-1
+             if (isinfo())print*,'lower=',max(lb,lowers(:,i))-off
+             if (isinfo())print*,'upper=',min(ub,uppers(:,i))-off
             if (recvcount.gt.MAX_HALOS) then
               call error(18,"Too many receives!",err)
               return
@@ -716,6 +722,7 @@ module gabriel
           allocate(per(r))
           per=periodic
           allocate(shf(r))
+          if (any(periodic)) then
           do
           shf=merge(global_up-global_low+1,0,per)
           do
@@ -752,6 +759,7 @@ module gabriel
           enddo ! do signed
           if (.not.combo(periodic,per)) exit
           enddo ! do combo
+          endif
           deallocate(global_low,global_up,shf,per)
         endif
 
@@ -792,7 +800,7 @@ module gabriel
         integer, intent(in)               :: comm              !> communicator
         integer, dimension(:), intent(in), optional :: offset  !> offset of array indices
         integer, intent(out), optional :: err  !> error indicator
-        integer, parameter            :: MAX_HALOS = 30
+        integer, parameter            :: MAX_HALOS = 100
         integer :: sendcount
         integer :: recvcount
         integer,dimension(MAX_HALOS) :: sends
@@ -843,11 +851,15 @@ module gabriel
         to_ub=ubound(vto)
 
         if (any(low.lt.lb)) then
+             if (iserror())print*,'lower=',low
+             if (iserror())print*,'lbound=',lb
           call error(24,"Lower bound array incorrect!",err)
           return
         endif
         if (any(up.gt.ub)) then
-          call error(25,"Upper bound array incorrect!",err)
+             if (iserror())print*,'upper=',up
+             if (iserror())print*,'ubound=',ub
+             call error(25,"Upper bound array incorrect!",err)
           return
         endif
 
