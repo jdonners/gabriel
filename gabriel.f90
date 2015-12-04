@@ -122,6 +122,13 @@ module gabriel
 
       end function
 
+      logical function iswarning()
+
+        iswarning=.false.
+        if (verbose.ge.2) iswarning=.true.
+
+      end function
+
       logical function iserror()
 
         iserror=.false.
