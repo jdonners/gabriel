@@ -11,7 +11,7 @@ module gabriel
 !      logical, parameter :: debug=.true.
 !      logical, parameter :: check=.true.
 !      integer, parameter :: verbose=1
-      logical, parameter :: check=.true.
+!      logical, parameter :: check=.true.
 
 ! Verbosity levels
 ! 0 : no verbosity
@@ -21,6 +21,9 @@ module gabriel
 ! 4 : add debug 
       integer :: verbose=1
       public :: gabriel_set_verbosity
+
+      logical :: check=.true.
+      public :: gabriel_set_checking, gabriel_enable_checking, gabriel_disable_checking
 
 !> Class to define halos
       type, public :: halo
@@ -100,6 +103,20 @@ module gabriel
 
 
       contains 
+
+      subroutine gabriel_set_checking(flag)
+        logical :: flag
+
+        check=flag
+      end subroutine
+
+      subroutine gabriel_disable_checking
+        check=.false.
+      end subroutine
+
+      subroutine gabriel_enable_checking
+        check=.true.
+      end subroutine
 
       subroutine gabriel_set_verbosity(level)
         integer :: level
@@ -532,7 +549,7 @@ module gabriel
 
         do n=0,commsize-1
           
-          if (count(d%recvranks.eq.n).gt.1) then
+          if (count(d%recvranks(1:d%recvs).eq.n).gt.1) then
             if(isdebug())print*,'n,d%recvs,count(d%recvranks.eq.n)=',n,d%recvs,count(d%recvranks(1:d%recvs).eq.n)
 !combine receive halos from the same rank into one combined type
             call h%combined(pack(d%recvhalos(1:d%recvs),d%recvranks(1:d%recvs).eq.n),err=err)
@@ -548,7 +565,7 @@ module gabriel
             call d%add_recv(n,h,err=err)
             if (isnonzero(err))return
           endif
-          if (count(d%sendranks.eq.n).gt.1) then
+          if (count(d%sendranks(1:d%sends).eq.n).gt.1) then
             if(isdebug())print*,'n,d%sends,count(d%sendranks.eq.n)=',n,d%sends,count(d%sendranks.eq.n)
 !combine send halos to the same rank into one combined type
             call h%combined(pack(d%sendhalos(1:d%sends),d%sendranks(1:d%sends).eq.n),err=err)
