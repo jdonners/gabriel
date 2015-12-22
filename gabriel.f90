@@ -3,7 +3,7 @@ module gabriel
 !***********************************************************************
 ! contains info for the message passing
 !-----------------------------------------------------------------------
-      use mpi, only : MPI_ADDRESS_KIND
+      use mpi, only : MPI_ADDRESS_KIND,MPI_DATATYPE_NULL
       implicit none 
 
       private
@@ -27,17 +27,21 @@ module gabriel
 
 !> Class to define halos
       type, public :: halo
-        integer, private :: m                         !< MPI type
+        integer, private :: m=MPI_DATATYPE_NULL                         !< MPI type
         logical, private :: initialized = .false.              !< is m a valid MPI type?
+        logical, private :: absolute = .false.        !< is m an absolute MPI type (i.e. should it be used with MPI_BOTTOM)?
         class(halo), pointer, private :: i            !< pointer to extended halo type for verification (boundary checking)
         contains
           procedure, public :: mpitype                        !< Return the MPI type
           procedure, private :: copy_halo                      !< Copy a halo
           generic :: assignment(=) => copy_halo       !< Define assignment of a halo
           procedure :: combined => create_combined                !< Combine different halos of the same variable
-          procedure :: joined => create_joined                  !< Combine the same halo of different variables
+          procedure :: joined => halo_joined_init                  !< Join the same halo of different variables
+          procedure :: add_joined
+          procedure :: commit => halo_commit                      !< commit halo datatype and create joined datatype
           procedure :: subarray => create_subarray                !< Create a subarray type
           procedure :: is_valid_halo => check_halo                 !< Verify a halo
+          procedure :: is_absolute => halo_is_absolute       !< Is a halo absolute?
           procedure :: print => print_halo            !< print halo
           final :: finalize_halo                      !< Finalize a halo
       end type halo
@@ -56,7 +60,7 @@ module gabriel
           procedure :: print => print_subarray                 !< print a subarray
       end type
 
-!> Type to join multiple halos of the same variable
+!> Type to combine multiple halos of the same variable
       type, extends(halo) :: combined
         integer :: n                                           !< number of halos
         type(halo),dimension(:),allocatable :: halos           !< array of halos
@@ -68,9 +72,14 @@ module gabriel
       type, extends(halo) :: joined
         integer     :: length                                  !< max number of variables
         integer     :: n = 0                                   !< actual number of variables
-        type(halo)  :: h                                       !< halo for each variable
         integer(MPI_ADDRESS_KIND),dimension(:),allocatable :: variables !< multiple variables
       end type
+
+!      interface decomposition_update
+!        module procedure decomposition_update_bottom
+!        module procedure decomposition_update_single
+!        module procedure decomposition_update_sendrecv
+!      end interface decomposition_update
 
 !> Type to define decomposition
       type, public :: decomposition
@@ -92,15 +101,20 @@ module gabriel
         type(halo),allocatable,dimension(:) :: sendhalos  !< halo types to send
         type(halo),allocatable,dimension(:) :: recvhalos  !< halo types to receive
         contains
-          procedure :: init => init_decomposition_        !< initialize decomposition
-          procedure :: add_send => add_decomposition_send_  !< add a neighbor to send to
-          procedure :: add_recv => add_decomposition_recv_  !< add a neighbor to recv from
-          procedure :: create => create_decomposition_      !< finalize the decomposition
-          procedure :: update => update_decomposition_      !< update the decomposition
-          procedure :: autocreate => create_decomposition_halo_      !< create autodecomposition
-          procedure :: transform => create_reshuffle_      !< create transformation
+          procedure :: init => init_decomposition_              !< initialize decomposition
+          procedure :: add_send => add_decomposition_send_      !< add a neighbor to send to
+          procedure :: add_recv => add_decomposition_recv_      !< add a neighbor to recv from
+          procedure :: create => create_decomposition_          !< create the graph communicator of the decomposition
+          generic   :: update => decomposition_update_single,decomposition_update_bottom,decomposition_update_sendrecv           !< update the decomposition
+          procedure :: autocreate => decomposition_autocreate   !< create autodecomposition
+          procedure :: transform => create_reshuffle_           !< create transformation
+          procedure :: halo => decomposition_halo               !< setup halos, but don't create
+          procedure :: joined => decomposition_joined           !< setup joined decomposition
+          procedure :: joined_add => decomposition_joined_add   !< add variable to joined decomposition
+          procedure,private   :: decomposition_update_single           !< update the decomposition
+          procedure,private   :: decomposition_update_bottom           !< update the decomposition
+          procedure,private   :: decomposition_update_sendrecv         !< update the decomposition
       end type decomposition          
-
 
       contains 
 
@@ -291,6 +305,7 @@ module gabriel
         integer                  :: i,sz,mpierr
         integer,allocatable,dimension(:) :: hh,ones
         integer(kind=MPI_ADDRESS_KIND),allocatable,dimension(:) :: zeroes
+        integer nabs
 
         if (present(err)) err=0
 
@@ -301,8 +316,20 @@ module gabriel
           return
         endif
 
+! check for types with absolute addresses
+        nabs=0
+        do i=1,sz
+          if (halos(i)%is_absolute()) nabs=nabs+1
+        enddo
+        print*,'sz,nabs=',sz,nabs
+        if (nabs.gt.0 .and. nabs.ne.sz) then
+          call error(37,"combined halo can not combine types with relative and absolute addresses.",err)
+          return
+        endif
+
 ! allocate subarray halo type
         allocate(combined :: self%i)
+        if (nabs.eq.sz) self%absolute=.true.
         select type (c=> self%i)
         type is (combined)
           c%n=sz
@@ -329,12 +356,63 @@ module gabriel
 !! @param self halo object
 !! @param n number of variables to communicate the halos
 !! @relates gabriel::halo
-      subroutine create_joined(self,n,err)
+      subroutine halo_joined_init(self,n,err)
 ! The resulting halo is based on absolute addresses, so it will be communicated
 ! with MPI_BOTTOM as both sending and receiving buffers.
         use mpi
 
         class(halo),intent(inout) :: self
+        integer,intent(in)        :: n
+        integer,intent(out),optional :: err
+
+        class(halo),allocatable   :: h
+        integer                   :: i,mpierr
+
+        if (present(err)) err=0
+! check arguments
+        if (n.lt.2) then
+          call error(10,'Error: Joined halo needs at least room for 2 halo variables as input.',err)
+          return
+        endif
+
+! allocate joined halo type
+        allocate(joined :: h)
+        select type (h)
+        type is (joined)
+          allocate(h%variables(n))
+          h%length=n
+          allocate(h%i,source=self)
+        end select
+! create type
+!          call MPI_Type_create_struct(sz,ones,zeroes,hh,h%m)
+! note that the mpitype is stored in the halo type that points to the subarray type, NOT in the subarray type.
+!        call MPI_Type_commit(h%m,mpierr)
+
+        allocate(self%i,source=h)
+        self%absolute=.true.
+        if (isdebug()) then
+        select type (h)
+        type is (joined)
+          print*,'original halo is joined'
+        end select
+        select type (j=>self%i)
+        type is (joined)
+          print*,'copied halo is joined'
+        class default
+          print*,'copied halo is not joined'
+        end select
+        endif
+
+      end subroutine halo_joined_init
+
+!> create a joined decomposition
+!! @ relates gabriel::decomposition
+      subroutine decomposition_joined(self,n,err)
+! The resulting halo is based on absolute addresses, so it will be communicated
+! with MPI_BOTTOM as both sending and receiving buffers.
+        use mpi
+
+        class(decomposition),intent(inout) :: self
         integer,intent(in)        :: n
         integer,intent(out),optional :: err
 
@@ -348,20 +426,37 @@ module gabriel
           return
         endif
 
+        do i=1,self%sends
+          call self%sendhalos(i)%joined(n,err)
+        enddo
+        do i=1,self%recvs
 ! allocate subarray halo type
-        allocate(joined :: h%i)
-        select type (j=>h%i)
-        type is (joined)
-          allocate(j%variables(n))
-        end select
+          call self%recvhalos(i)%joined(n,err)
+        enddo
 
-! create type
-!          call MPI_Type_create_struct(sz,ones,zeroes,hh,h%m)
-! note that the mpitype is stored in the halo type that points to the subarray type, NOT in the subarray type.
-!        call MPI_Type_commit(h%m,mpierr)
+      end subroutine decomposition_joined
 
-        self=h
-      end subroutine create_joined
+!> add a variable to a joined halo type
+!! @relates gabriel::subarray
+      subroutine decomposition_joined_add(self,v,err)
+        use mpi
+
+        class(decomposition), intent(inout) :: self
+        real, dimension(:,:,:), allocatable, intent(in)    :: v
+        integer, intent(out), optional :: err
+                                                                        
+        integer i
+
+        if (present(err)) err=0
+  
+        do i=1,self%sends
+          call self%sendhalos(i)%add_joined(v,err)
+        enddo
+        do i=1,self%recvs
+          call self%recvhalos(i)%add_joined(v,err)
+        enddo
+
+      end subroutine decomposition_joined_add
 
 !> print a halo
 !! @relates gabriel::halo
@@ -409,17 +504,19 @@ module gabriel
       if (present(err)) err=0
       select type(j=>self%i)
       type is (joined)
-        if (.not.j%is_valid_halo(v)) then
+        if (.not.j%i%is_valid_halo(v)) then
           call error(11,"Halo is not valid for variable",err)
           return
         endif        
 
         j%n=j%n+1
+        if (isdebug()) print*,'n,length=',j%n,j%length
         if (j%n.gt.j%length) then 
           call error(12,"Too many halos for joined halo type",err)
           return
         endif 
-        call MPI_Get_address(v,j%variables(n),mpierr) 
+        if (isdebug()) print*,'ln=',size(j%variables),lbound(j%variables)
+        call MPI_Get_address(v,j%variables(j%n),mpierr) 
       class default
           call error(13,"This is not a joined halo type",err)
           return
@@ -547,8 +644,13 @@ module gabriel
 
         call MPI_Comm_size(d%comm_parent,commsize,ierr)
 
+        do n=1,d%recvs
+          call d%recvhalos(n)%commit()
+        enddo
+        do n=1,d%sends
+          call d%sendhalos(n)%commit()
+        enddo
         do n=0,commsize-1
-          
           if (count(d%recvranks(1:d%recvs).eq.n).gt.1) then
             if(isdebug())print*,'n,d%recvs,count(d%recvranks.eq.n)=',n,d%recvs,count(d%recvranks(1:d%recvs).eq.n)
 !combine receive halos from the same rank into one combined type
@@ -596,8 +698,8 @@ module gabriel
 !> Automatically create a decomposition with all halos.
 !! This is a collective MPI call.
 !! @relates gabriel::decomposition
-!      subroutine create_decomposition_halo_(d,v,lower,upper,comm,offset,periodic,lower_global,upper_global)
-      subroutine create_decomposition_halo_(d,v,lower,upper,comm,offset,periodic,err)
+!      subroutine decomposition_halo(d,v,lower,upper,comm,offset,periodic,lower_global,upper_global)
+      subroutine decomposition_halo(d,v,lower,upper,comm,offset,periodic,err)
         use mpi
         class(decomposition), intent(inout)            :: d    !> Resulting decomposition
         real, dimension(..), allocatable, intent(in)   :: v    !> variable to create halos for
@@ -807,10 +909,26 @@ module gabriel
         deallocate(low,up)
         deallocate(lbs,ubs)
         deallocate(lowers,uppers)
+
+      end subroutine decomposition_halo
+
+      subroutine decomposition_autocreate(d,v,lower,upper,comm,offset,periodic,err)
+        use mpi
+        class(decomposition), intent(inout)            :: d    !> Resulting decomposition
+        real, dimension(..), allocatable, intent(in)   :: v    !> variable to create halos for
+        integer, dimension(:), intent(in) :: lower             !> lower bound of active domain
+        integer, dimension(:), intent(in) :: upper             !> upper bound of active domain
+        integer, intent(in)               :: comm              !> communicator
+        integer, dimension(:), intent(in), optional :: offset  !> offset of array indices
+        logical, dimension(:), intent(in), optional :: periodic       !> periodicity of global domain
+        integer, intent(out), optional :: err  !> error indicator
+!        integer, dimension(:), intent(in), optional :: global_lower   !> lower bound of global domain
+!        integer, dimension(:), intent(in), optional :: global_upper   !> upper bound of global domain
+
+        call d%halo(v,lower,upper,comm,offset,periodic,err)
         call d%create(err=err)
-
-      end subroutine create_decomposition_halo_
-
+      end subroutine decomposition_autocreate
+   
 !> Automatically create a transformation with all halos.
 !! This is a collective MPI call.
 !! @relates gabriel::decomposition
@@ -1078,13 +1196,67 @@ logical recursive function signs(d,n) result(signsr)
       
 !> Update a decomposition
 !! @relates gabriel::decomposition
-      subroutine update_decomposition_(self,vsend,vrecv,err)
+      subroutine decomposition_update_single(self,v,err)
+        use mpi
+        use iso_c_binding, only : c_loc,c_f_pointer
+ 
+        real, dimension(..), allocatable, target, intent(inout) :: v
+        class(decomposition), intent(in)                    :: self
+        integer, intent(out), optional                      :: err
+
+        real,dimension(:),pointer :: psend,precv
+        integer mpierr,status(MPI_STATUS_SIZE)
+        integer i
+
+        call self%update(v,v,err)
+
+      end subroutine decomposition_update_single
+
+!> Update a decomposition
+!! @relates gabriel::decomposition
+      subroutine decomposition_update_bottom(self,err)
       use mpi
       use iso_c_binding, only : c_loc,c_f_pointer
 
+      class(decomposition), intent(in)                    :: self
+      integer, intent(out), optional                      :: err
+
+      integer mpierr,status(MPI_STATUS_SIZE)
+      integer i
+
+      if (present(err)) err=0
+
+      call debug('decomposition_update_bottom')
+      if (check) then
+        do i=1,self%sends
+          if (isdebug()) print*,'i=',i
+          if (.not.self%sendhalos(i)%is_absolute()) then
+            call error(35,"Send halo not absolute",err)
+            return
+          endif 
+        enddo
+        do i=1,self%recvs
+          if (.not.self%recvhalos(i)%is_absolute()) then
+            call error(36,"Receive halo not absolute",err)
+            return
+          endif 
+        enddo
+      endif
+      
+      call MPI_Neighbor_alltoallw(MPI_BOTTOM,self%sendcnts,self%senddispls,self%sendhalos%m, &
+     &  MPI_BOTTOM,self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
+
+      end subroutine decomposition_update_bottom
+
+!> Update a decomposition
+!! @relates gabriel::decomposition
+      subroutine decomposition_update_sendrecv(self,vsend,vrecv,err)
+      use mpi
+      use iso_c_binding, only : c_loc,c_f_pointer
+
+      class(decomposition), intent(in)                    :: self
       real, dimension(..), allocatable, target, intent(in)    :: vsend
       real, dimension(..), allocatable, target, intent(inout) :: vrecv
-      class(decomposition), intent(in)                    :: self
       integer, intent(out), optional                      :: err
 
       real,dimension(:),pointer :: psend,precv
@@ -1115,7 +1287,7 @@ logical recursive function signs(d,n) result(signsr)
       call MPI_Neighbor_alltoallw(psend,self%sendcnts,self%senddispls,self%sendhalos%m, &
      &  precv,self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
                    
-      end subroutine update_decomposition_
+      end subroutine decomposition_update_sendrecv
 
 !> finalize halo
 !! @private
@@ -1144,11 +1316,12 @@ logical recursive function signs(d,n) result(signsr)
 
         integer mpierr
 
-        if (isdebug()) print*,'copy_halo ',hin%initialized
-        if (hin%initialized) then
+        if (isdebug()) print*,'copy_halo ',hin%initialized,hin%m
+        hout%absolute=hin%absolute
+        if (hin%m.ne.MPI_DATATYPE_NULL) then
           call MPI_Type_dup(hin%m,hout%m,mpierr)
-          allocate(hout%i,source=hin%i)
         endif
+        if(associated(hin%i))allocate(hout%i,source=hin%i)
       end subroutine copy_halo
 
 !> check subarray halo
@@ -1235,10 +1408,24 @@ logical recursive function signs(d,n) result(signsr)
 
         check_combined=ierr
       end function check_combined
+
+!> is halo absolute?
+!! @private
+      function halo_is_absolute(self)
+        use mpi 
+        logical  :: halo_is_absolute
+
+        class(halo), intent(in)                         :: self
+
+        call debug('halo_is_absolute')
+
+        halo_is_absolute=self%absolute
+
+      end function halo_is_absolute
                                                                         
 !> create and commit a joined halo
 !! @relates gabriel::halo
-      subroutine create_joined_halo(self) 
+      subroutine halo_commit(self) 
         use mpi 
                                                                         
         class(halo),intent(inout) :: self
@@ -1247,12 +1434,16 @@ logical recursive function signs(d,n) result(signsr)
                                                                         
         select type (j=>self%i)
         type is (joined)                                                                        
-          call MPI_Type_create_hindexed_block(j%n,         & 
-                  1,j%variables,j%m,self%m,mpierr) 
+          if (.not.j%initialized) then
+            call MPI_Type_create_hindexed_block(j%n,1,j%variables,j%i%m,self%m,mpierr) 
+            self%initialized=.true.
+            if(.not.self%is_absolute())call error(999,"Sanity check: type is joined, but not absolute")
+          endif
         end select
+
         call MPI_Type_commit(self%m,mpierr) 
                                                                         
-      end subroutine create_joined_halo 
+      end subroutine halo_commit
 
 !> check validity of a halo for a variable
 !! @relates gabriel::halo
@@ -1264,6 +1455,8 @@ logical recursive function signs(d,n) result(signsr)
         call debug('check_halo')
 
         check_halo=.false.
+! if the halo is of absolute type, return .false.
+        if (self%is_absolute()) return
         select type(h=>self%i)
         type is (subarray)
           check_halo=h%is_valid_halo(v)

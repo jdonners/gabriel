@@ -1,10 +1,10 @@
 lib_LTLIBRARIES = libgabriel.la
-libgabriel_la_LDFLAGS = -version-info 1:0:1
+libgabriel_la_LDFLAGS = -version-info 2:0:0
 libgabriel_la_SOURCES = gabriel.f90
 
 nodist_include_HEADERS = gabriel.$(FC_MODEXT)
 
-TESTS = example1d example_auto example_auto_offset example_transform example_err
+TESTS = example1d example_auto example_auto_offset example_transform example_err example_joined example_auto_joined
 check_PROGRAMS = $(TESTS)
 AM_DEFAULT_SOURCE_EXT = .f90
 LDADD = -lgabriel
