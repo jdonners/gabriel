@@ -5,12 +5,12 @@ configure
 libtool
 autom4te.cache
 stamp-h1
-example*
 *.log
 *.trs
 .libs
 html
 man
+doc
 config.h
 config.h.in
 config.log
@@ -20,4 +20,12 @@ config.status
 *.la
 *.mod
 *.tar.gz
-*.f90~
+*~
+example1d
+example_auto
+example_auto_joined
+example_auto_offset
+example_err
+example_joined
+example_transform
+

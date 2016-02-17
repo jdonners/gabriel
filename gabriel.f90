@@ -19,6 +19,8 @@ module gabriel
 ! 2 : add warnings
 ! 3 : add info
 ! 4 : add debug 
+!
+!dox doxygen comments, not used now	 (this should be replaced with !!, should doxygen be used)
       integer :: verbose=1
       public :: gabriel_set_verbosity
 
@@ -27,12 +29,12 @@ module gabriel
 
 !> Class to define halos
       type, public :: halo
-        integer, private :: m=MPI_DATATYPE_NULL                         !< MPI type
+        integer, private :: m=MPI_DATATYPE_NULL                   !< MPI type
         logical, private :: initialized = .false.              !< is m a valid MPI type?
         logical, private :: absolute = .false.        !< is m an absolute MPI type (i.e. should it be used with MPI_BOTTOM)?
         class(halo), pointer, private :: i            !< pointer to extended halo type for verification (boundary checking)
         contains
-          procedure, public :: mpitype                        !< Return the MPI type
+          procedure, public :: mpitype                        !< Return a duplicate of the MPI type
           procedure, private :: copy_halo                      !< Copy a halo
           generic :: assignment(=) => copy_halo       !< Define assignment of a halo
           procedure :: combined => create_combined                !< Combine different halos of the same variable
@@ -119,7 +121,7 @@ module gabriel
       contains 
 
       subroutine gabriel_set_checking(flag)
-        logical :: flag
+        logical :: flag                        !< .true. or .false.
 
         check=flag
       end subroutine
@@ -199,19 +201,19 @@ module gabriel
 
       end function
 
-!> Create type to combine different halos.
-!! This is used to communicate a subarray of a larger array
-!! @relates gabriel::halo
       subroutine create_subarray(self,array,starts,stops,subsizes,err)
+!! Create type to combine different halos.
+!! This is used to communicate a subarray of a larger array
         use mpi
 
-        class(halo)                                             :: self
-        real, intent(in), dimension(..), allocatable            :: array
-        integer, intent(in), dimension(:)                       :: starts
-        integer, intent(in), dimension(:), optional             :: stops,subsizes
-        integer, intent(out), optional                          :: err
+        class(halo)                                             :: self           !< halo
+        real, intent(in), dimension(..), allocatable            :: array          !< input array
+        integer, intent(in), dimension(:)                       :: starts         !< starting indices of subarray
+        integer, intent(in), dimension(:), optional             :: stops          !< stopping indices of subarray
+        integer, intent(in), dimension(:), optional             :: subsizes       !< subsizes of subarray
+        integer, intent(out), optional                          :: err            !< error code
 
-        integer                 :: mpierr
+        integer           :: mpierr
         integer           :: ndim
         integer           :: realtype
         real              :: dummyreal
@@ -293,8 +295,8 @@ module gabriel
       end subroutine create_subarray
 
 !> Create type to combine different halos.
-!! This is usually used to communicate different parts of the same variable
-!! @relates gabriel::halo
+!> This is usually used to communicate different parts of the same variable
+!dox @relates gabriel::halo
       subroutine create_combined(self,halos,err)
         use mpi
 
@@ -352,10 +354,10 @@ module gabriel
       end subroutine create_combined
 
 !> Create type to join the same halo of multiple variables.
-!! This is usually used to communicate the same part of different variables.
-!! @param self halo object
-!! @param n number of variables to communicate the halos
-!! @relates gabriel::halo
+!> This is usually used to communicate the same part of different variables.
+!dox @param self halo object
+!dox @param n number of variables to communicate the halos
+!dox @relates gabriel::halo
       subroutine halo_joined_init(self,n,err)
 ! The resulting halo is based on absolute addresses, so it will be communicated
 ! with MPI_BOTTOM as both sending and receiving buffers.
@@ -406,7 +408,7 @@ module gabriel
       end subroutine halo_joined_init
 
 !> create a joined decomposition
-!! @ relates gabriel::decomposition
+!dox @ relates gabriel::decomposition
       subroutine decomposition_joined(self,n,err)
 ! The resulting halo is based on absolute addresses, so it will be communicated
 ! with MPI_BOTTOM as both sending and receiving buffers.
@@ -437,7 +439,7 @@ module gabriel
       end subroutine decomposition_joined
 
 !> add a variable to a joined halo type
-!! @relates gabriel::subarray
+!dox @relates gabriel::subarray
       subroutine decomposition_joined_add(self,v,err)
         use mpi
 
@@ -459,7 +461,7 @@ module gabriel
       end subroutine decomposition_joined_add
 
 !> print a halo
-!! @relates gabriel::halo
+!dox @relates gabriel::halo
       subroutine print_halo(self,err)
         class(halo),intent(in) :: self
         integer,intent(out),optional :: err
@@ -476,8 +478,8 @@ module gabriel
       end subroutine print_halo
 
 !> print a subarray
-!! @relates gabriel::subarray
-!! @private
+!dox @relates gabriel::subarray
+!dox @private
       subroutine print_subarray(self,err)
         class(subarray),intent(in) :: self
         integer,intent(out),optional :: err
@@ -490,8 +492,8 @@ module gabriel
       end subroutine print_subarray
 
 
-!> add a variable to a joined halo type
-!! @relates gabriel::subarray
+!> Add a variable to a joined halo type
+!dox @relates gabriel::subarray
       subroutine add_joined(self,v,err)
         use mpi
 
@@ -525,7 +527,7 @@ module gabriel
       end subroutine add_joined
 
 !> Initialize a decomposition
-!! @relates gabriel::decomposition
+!dox @relates gabriel::decomposition
       subroutine init_decomposition_(d,sends,recvs,comm,err)
         class(decomposition), intent(out)                  :: d
         integer, intent(in)                                :: sends,recvs,comm
@@ -553,14 +555,8 @@ module gabriel
 
       end subroutine init_decomposition_
 
-!> This is meant to trick doxygen in documenting the next routine
-!!@ private
-      subroutine dummy1
-        use mpi
-      end subroutine dummy1
-
 !> Add a receive to a decomposition
-!! @relates gabriel::decomposition
+!dox @relates gabriel::decomposition
       subroutine add_decomposition_recv_(d,rank,h,err)
         use mpi
         class(decomposition), intent(inout)                 :: d
@@ -587,7 +583,7 @@ module gabriel
       end subroutine add_decomposition_recv_
 
 !> Add a send to a decomposition
-!! @relates gabriel::decomposition
+!dox @relates gabriel::decomposition
       subroutine add_decomposition_send_(d,rank,h,err)
         use mpi
         class(decomposition), intent(inout)                 :: d
@@ -614,13 +610,13 @@ module gabriel
       end subroutine add_decomposition_send_
 
 !> Commit a decomposition
-!! @relates gabriel::decomposition
+!dox @relates gabriel::decomposition
       subroutine create_decomposition_(d,i,reorder,err)
         use mpi
-        class(decomposition), intent(inout)           :: d            !> decomposition type
-        integer, optional, intent(in)                 :: i            !> MPI_Info, default MPI_INFO_NULL
-        logical, optional, intent(in)                 :: reorder      !> reorder, default .true.
-        integer, intent(out), optional                 :: err          !> error indicator
+        class(decomposition), intent(inout)           :: d            !< decomposition type
+        integer, optional, intent(in)                 :: i            !< MPI_Info, default MPI_INFO_NULL
+        logical, optional, intent(in)                 :: reorder      !< reorder, default .true.
+        integer, intent(out), optional                 :: err         !< error indicator
 
         integer info,ierr
         integer commsize
@@ -696,21 +692,20 @@ module gabriel
       end subroutine create_decomposition_
 
 !> Automatically create a decomposition with all halos.
-!! This is a collective MPI call.
-!! @relates gabriel::decomposition
-!      subroutine decomposition_halo(d,v,lower,upper,comm,offset,periodic,lower_global,upper_global)
+!> This is a collective MPI call.
+!dox @relates gabriel::decomposition
       subroutine decomposition_halo(d,v,lower,upper,comm,offset,periodic,err)
         use mpi
-        class(decomposition), intent(inout)            :: d    !> Resulting decomposition
-        real, dimension(..), allocatable, intent(in)   :: v    !> variable to create halos for
-        integer, dimension(:), intent(in) :: lower             !> lower bound of active domain
-        integer, dimension(:), intent(in) :: upper             !> upper bound of active domain
-        integer, intent(in)               :: comm              !> communicator
-        integer, dimension(:), intent(in), optional :: offset  !> offset of array indices
-        logical, dimension(:), intent(in), optional :: periodic       !> periodicity of global domain
-        integer, intent(out), optional :: err  !> error indicator
-!        integer, dimension(:), intent(in), optional :: global_lower   !> lower bound of global domain
-!        integer, dimension(:), intent(in), optional :: global_upper   !> upper bound of global domain
+        class(decomposition), intent(inout)            :: d    !< Resulting decomposition
+        real, dimension(..), allocatable, intent(in)   :: v    !< variable to create halos for
+        integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
+        integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
+        integer, intent(in)               :: comm              !< communicator
+        integer, dimension(:), intent(in), optional :: offset  !< offset of array indices
+        logical, dimension(:), intent(in), optional :: periodic       !< periodicity of global domain
+        integer, intent(out), optional :: err  !< error indicator
+!        integer, dimension(:), intent(in), optional :: global_lower   !< lower bound of global domain
+!        integer, dimension(:), intent(in), optional :: global_upper   !< upper bound of global domain
 
         integer, parameter            :: MAX_HALOS = 30
         integer :: sendcount
@@ -914,34 +909,34 @@ module gabriel
 
       subroutine decomposition_autocreate(d,v,lower,upper,comm,offset,periodic,err)
         use mpi
-        class(decomposition), intent(inout)            :: d    !> Resulting decomposition
-        real, dimension(..), allocatable, intent(in)   :: v    !> variable to create halos for
-        integer, dimension(:), intent(in) :: lower             !> lower bound of active domain
-        integer, dimension(:), intent(in) :: upper             !> upper bound of active domain
-        integer, intent(in)               :: comm              !> communicator
-        integer, dimension(:), intent(in), optional :: offset  !> offset of array indices
-        logical, dimension(:), intent(in), optional :: periodic       !> periodicity of global domain
-        integer, intent(out), optional :: err  !> error indicator
-!        integer, dimension(:), intent(in), optional :: global_lower   !> lower bound of global domain
-!        integer, dimension(:), intent(in), optional :: global_upper   !> upper bound of global domain
+        class(decomposition), intent(inout)            :: d    !< Resulting decomposition
+        real, dimension(..), allocatable, intent(in)   :: v    !< variable to create halos for
+        integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
+        integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
+        integer, intent(in)               :: comm              !< communicator
+        integer, dimension(:), intent(in), optional :: offset  !< offset of array indices
+        logical, dimension(:), intent(in), optional :: periodic       !< periodicity of global domain
+        integer, intent(out), optional :: err  !< error indicator
+!        integer, dimension(:), intent(in), optional :: global_lower   !< lower bound of global domain
+!        integer, dimension(:), intent(in), optional :: global_upper   !< upper bound of global domain
 
         call d%halo(v,lower,upper,comm,offset,periodic,err)
         call d%create(err=err)
       end subroutine decomposition_autocreate
    
 !> Automatically create a transformation with all halos.
-!! This is a collective MPI call.
-!! @relates gabriel::decomposition
+!> This is a collective MPI call.
+!dox @relates gabriel::decomposition
       subroutine create_reshuffle_(d,vfrom,vto,lower,upper,comm,offset,err)
         use mpi
-        class(decomposition), intent(inout)            :: d    !> Resulting decomposition
-        real, dimension(..), allocatable, intent(in)   :: vfrom    !> variable to create halos for
-        real, dimension(..), allocatable, intent(in)   :: vto    !> variable to create halos for
-        integer, dimension(:), intent(in) :: lower             !> lower bound of active domain
-        integer, dimension(:), intent(in) :: upper             !> upper bound of active domain
-        integer, intent(in)               :: comm              !> communicator
-        integer, dimension(:), intent(in), optional :: offset  !> offset of array indices
-        integer, intent(out), optional :: err  !> error indicator
+        class(decomposition), intent(inout)            :: d    !< Resulting decomposition
+        real, dimension(..), allocatable, intent(in)   :: vfrom    !< variable to create halos for
+        real, dimension(..), allocatable, intent(in)   :: vto    !< variable to create halos for
+        integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
+        integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
+        integer, intent(in)               :: comm              !< communicator
+        integer, dimension(:), intent(in), optional :: offset  !< offset of array indices
+        integer, intent(out), optional :: err  !< error indicator
         integer, parameter            :: MAX_HALOS = 100
         integer :: sendcount
         integer :: recvcount
@@ -1194,8 +1189,8 @@ logical recursive function signs(d,n) result(signsr)
 
       end subroutine
       
-!> Update a decomposition
-!! @relates gabriel::decomposition
+!> Update a decomposition with one array as source and destination
+!dox @relates gabriel::decomposition
       subroutine decomposition_update_single(self,v,err)
         use mpi
         use iso_c_binding, only : c_loc,c_f_pointer
@@ -1212,8 +1207,8 @@ logical recursive function signs(d,n) result(signsr)
 
       end subroutine decomposition_update_single
 
-!> Update a decomposition
-!! @relates gabriel::decomposition
+!> Update a decomposition with types that use absolute addressing
+!dox @relates gabriel::decomposition
       subroutine decomposition_update_bottom(self,err)
       use mpi
       use iso_c_binding, only : c_loc,c_f_pointer
@@ -1248,8 +1243,7 @@ logical recursive function signs(d,n) result(signsr)
 
       end subroutine decomposition_update_bottom
 
-!> Update a decomposition
-!! @relates gabriel::decomposition
+!> Update a decomposition with separate arrays as source and destination
       subroutine decomposition_update_sendrecv(self,vsend,vrecv,err)
       use mpi
       use iso_c_binding, only : c_loc,c_f_pointer
@@ -1290,7 +1284,7 @@ logical recursive function signs(d,n) result(signsr)
       end subroutine decomposition_update_sendrecv
 
 !> finalize halo
-!! @private
+!dox @private
       subroutine finalize_halo(h)
         type(halo) :: h
 
@@ -1309,7 +1303,6 @@ logical recursive function signs(d,n) result(signsr)
       end subroutine finalize_halo
 
 !> copy halo
-!! @private
       subroutine copy_halo(hout,hin)
         class(halo),intent(inout) :: hout
         class(halo),intent(in)    :: hin
@@ -1325,7 +1318,7 @@ logical recursive function signs(d,n) result(signsr)
       end subroutine copy_halo
 
 !> check subarray halo
-!! @private
+!dox @private
       function check_subarray(self,v)
         use mpi 
         logical :: check_subarray
@@ -1386,7 +1379,7 @@ logical recursive function signs(d,n) result(signsr)
       end function check_subarray
 
 !> check subarray halo
-!! @private
+!dox @private
       function check_combined(self,v)
         use mpi 
         logical  :: check_combined
@@ -1410,7 +1403,7 @@ logical recursive function signs(d,n) result(signsr)
       end function check_combined
 
 !> is halo absolute?
-!! @private
+!dox @private
       function halo_is_absolute(self)
         use mpi 
         logical  :: halo_is_absolute
@@ -1423,8 +1416,8 @@ logical recursive function signs(d,n) result(signsr)
 
       end function halo_is_absolute
                                                                         
-!> create and commit a joined halo
-!! @relates gabriel::halo
+!> Commit a halo. If the object is a joined halo, it first creates the derived datatype.
+!dox @relates gabriel::halo
       subroutine halo_commit(self) 
         use mpi 
                                                                         
@@ -1446,7 +1439,7 @@ logical recursive function signs(d,n) result(signsr)
       end subroutine halo_commit
 
 !> check validity of a halo for a variable
-!! @relates gabriel::halo
+!dox @private
       function check_halo(self,v)
         logical :: check_halo
         class(halo),intent(in) :: self
@@ -1468,9 +1461,9 @@ logical recursive function signs(d,n) result(signsr)
 
       end function check_halo
 
-!> Function to return the MPI type
-!! @relates gabriel::halo
-!! @public
+!> Function to return a duplicate of the MPI type
+!dox @relates gabriel::halo
+!dox @public
       function mpitype(self)
         class(halo), intent(in) :: self
         integer :: mpitype

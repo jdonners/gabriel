@@ -3,14 +3,6 @@ program ex
   use gabriel
   use MPI
 
-  interface operator(//)
-    function string_and_integer(s,i)
-      character(:),allocatable :: string_and_integer
-      character(*),intent(in) :: s
-      integer,intent(in) :: i
-    end function
-  end interface
-
   integer,parameter :: n=10
 
   real,dimension(:,:,:),allocatable :: a,b
