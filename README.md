@@ -19,8 +19,9 @@ The requirements to compile the gabriel library are
   - recent Cray MPI
   - recent IBM POE, can anyone test this?
 
-It's recommended to download a release version of gabriel. An example
-of a build of the library is 
+It's recommended to download a release tarball of gabriel. The latest
+release tarball is [gabriel-1.2.tar.gz](https://github.com/jdonners/gabriel/releases/download/1.2/gabriel-1.2.tar.gz).
+An example of a build of the library is 
 
     ./configure                    # use --enable-real8 for REAL*8 arrays
     make
