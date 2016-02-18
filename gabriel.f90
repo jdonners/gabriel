@@ -27,6 +27,8 @@ module gabriel
       logical :: check=.true.
       public :: gabriel_set_checking, gabriel_enable_checking, gabriel_disable_checking
 
+      integer :: realtype = MPI_DATATYPE_NULL
+
 !> Class to define halos
       type, public :: halo
         integer, private :: m=MPI_DATATYPE_NULL                   !< MPI type
@@ -215,7 +217,6 @@ module gabriel
 
         integer           :: mpierr
         integer           :: ndim
-        integer           :: realtype
         real              :: dummyreal
 
         if (present(err)) err=0
@@ -285,7 +286,9 @@ module gabriel
           endif
 
 ! create type
-          call MPI_Type_create_f90_real(precision(dummyreal),exponent(dummyreal),realtype,mpierr)
+          if (realtype.eq.MPI_DATATYPE_NULL) then
+            call MPI_Type_create_f90_real(precision(dummyreal),exponent(dummyreal),realtype,mpierr)
+          endif
           call MPI_Type_create_subarray(ndim,sub%sizes,sub%subsizes,sub%starts,    &
      &       MPI_ORDER_FORTRAN,realtype,self%m,mpierr)
 ! note that the mpitype is stored in the halo type that points to the subarray type, NOT in the subarray type.
