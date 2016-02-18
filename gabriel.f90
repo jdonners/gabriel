@@ -326,7 +326,6 @@ module gabriel
         do i=1,sz
           if (halos(i)%is_absolute()) nabs=nabs+1
         enddo
-        print*,'sz,nabs=',sz,nabs
         if (nabs.gt.0 .and. nabs.ne.sz) then
           call error(37,"combined halo can not combine types with relative and absolute addresses.",err)
           return
