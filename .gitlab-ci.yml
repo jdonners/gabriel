@@ -1,0 +1,6 @@
+before_script:
+  - ./configure
+
+make_check:
+  script:
+    - ./configure && make check
