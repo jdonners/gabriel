@@ -1,6 +1,6 @@
 before_script:
-  - ./configure
+  - autoreconf && ./configure
 
 make_check:
   script:
-    - autoreconf && ./configure && make check
+    - make check
