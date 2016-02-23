@@ -3,4 +3,4 @@ before_script:
 
 make_check:
   script:
-    - ./configure && make check
+    - autoreconf && ./configure && make check
