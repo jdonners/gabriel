@@ -16,6 +16,7 @@ The requirements to compile the gabriel library are
 * a recent MPI library supporting the MPI-3.0 standard:
   - Intel MPI 5.0.0 or newer
   - MPICH2 3.0.4 or newer (and maybe older)
+  - OpenMPI 1.10.2 or newer
   - recent Cray MPI
   - recent IBM POE, can anyone test this?
 
