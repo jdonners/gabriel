@@ -13,7 +13,7 @@ AC_LANG([Fortran])
 # AC_PROG_FC
 AX_PROG_FC_MPI([true],
   [ use_mpi=yes],
-  [AC_MSG_FAILURE([MPI compiler needed, but could not find MPI.],1)
+  [AC_MSG_ERROR([MPI compiler needed, but could not find MPI.],1)
   ])
 
 #set the extension to f90, to compile the tests
