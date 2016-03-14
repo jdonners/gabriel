@@ -15,6 +15,9 @@ program ex
   call MPI_Init(ierr)
   call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
   call MPI_Comm_size(MPI_COMM_WORLD,mpisize,ierr)
+
+  call gabriel_init
+
   right=rank+1
   left=rank-1
   if (right.ge.mpisize)right=0
@@ -43,7 +46,7 @@ program ex
   write(*,'(a,i3,a,i4,4f13.3,2i5)')'BEFORE Rank',rank,' data=',ver*s+2,a(:,ver*s+2,1),lbound(a,1),ubound(a,1)
   write(*,'(a,i3,a,i4,4f13.3,2i5)')'BEFORE Rank',rank,' data=',ver*s+3,a(:,ver*s+3,1),lbound(a,1),ubound(a,1)
 
-!  call gabriel_set_verbosity(4)
+  call gabriel_init
 !  call d%halo(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
 !  call d%halo(a,(/hor*s,ver*s,1/),(/hor*s+s-1,ver*s+s+1,6/),MPI_COMM_WORLD,periodic=(/.true.,.false.,.false./))
   call d%halo(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))

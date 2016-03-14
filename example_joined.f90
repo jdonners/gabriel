@@ -26,7 +26,7 @@ program ex
 
   write(*,'(a,i3,a,12f13.3)')'BEFORE Rank',rank,' data=',a(:,1,1)
 
-  call gabriel_set_verbosity(4)
+  call gabriel_init
   print*,'Define subarray halos..'
   call h(1,1)%subarray(a,(/n,1,1/),(/n,5,6/))
   call h(1,2)%subarray(a,(/0,1,1/),(/0,5,6/))

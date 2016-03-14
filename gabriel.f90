@@ -21,6 +21,9 @@ module gabriel
 ! 4 : add debug 
 !
 !dox doxygen comments, not used now	 (this should be replaced with !!, should doxygen be used)
+
+      public :: gabriel_init
+
       integer :: verbose=1
       public :: gabriel_set_verbosity
 
@@ -79,12 +82,6 @@ module gabriel
         integer(MPI_ADDRESS_KIND),dimension(:),allocatable :: variables !< multiple variables
       end type
 
-!      interface decomposition_update
-!        module procedure decomposition_update_bottom
-!        module procedure decomposition_update_single
-!        module procedure decomposition_update_sendrecv
-!      end interface decomposition_update
-
 !> Type to define decomposition
       type, public :: decomposition
         private
@@ -109,18 +106,32 @@ module gabriel
           procedure :: add_send => add_decomposition_send_      !< add a neighbor to send to
           procedure :: add_recv => add_decomposition_recv_      !< add a neighbor to recv from
           procedure :: create => create_decomposition_          !< create the graph communicator of the decomposition
-          generic   :: update => decomposition_update_single,decomposition_update_bottom,decomposition_update_sendrecv           !< update the decomposition
+! Unfortunately, this generic triggers an Intel compiler bug because of assumed-rank arrays, see topic 595234 in the Intel Forum
+!          generic   :: update => decomposition_update_single,decomposition_update_bottom,decomposition_update_sendrecv           !< update the decomposition
+! This is a temporary fix to the compiler problem above. This fix resolves the right routine at runtime, not at compile-time,
+! and will therefore be slower
+          procedure   :: update => decomposition_update_alt           !< update the decomposition
           procedure :: autocreate => decomposition_autocreate   !< create autodecomposition
           procedure :: transform => create_reshuffle_           !< create transformation
           procedure :: halo => decomposition_halo               !< setup halos, but don't create
           procedure :: joined => decomposition_joined           !< setup joined decomposition
           procedure :: joined_add => decomposition_joined_add   !< add variable to joined decomposition
-          procedure,private   :: decomposition_update_single           !< update the decomposition
-          procedure,private   :: decomposition_update_bottom           !< update the decomposition
-          procedure,private   :: decomposition_update_sendrecv         !< update the decomposition
+          procedure, private :: decomposition_update_single           !< update the decomposition
+          procedure, private :: decomposition_update_bottom           !< update the decomposition
+          procedure, private :: decomposition_update_sendrecv         !< update the decomposition
       end type decomposition          
 
       contains 
+
+      subroutine gabriel_init
+        character(LEN=256) :: verbosity
+        integer :: v
+
+        call get_environment_variable("GABRIEL_VERBOSE",verbosity)
+        read(verbosity,'(i)')v
+        call gabriel_set_verbosity(v)
+
+      end subroutine
 
       subroutine gabriel_set_checking(flag)
         logical :: flag                        !< .true. or .false.
@@ -140,7 +151,7 @@ module gabriel
         integer :: level
 
         if (level.ge.0 .and. level.le.4) verbose=level
-
+        if (level.ge.3)print*,'gabriel verbosity: ',level
       end subroutine
 
       logical function isdebug()
@@ -1284,6 +1295,25 @@ logical recursive function signs(d,n) result(signsr)
      &  precv,self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
                    
       end subroutine decomposition_update_sendrecv
+
+      subroutine decomposition_update_alt(self,vsend,vrecv,err)
+      use mpi
+      use iso_c_binding, only : c_loc,c_f_pointer
+
+      class(decomposition), intent(in)                    :: self
+      real, dimension(..), allocatable, target, optional, intent(inout) :: vsend
+      real, dimension(..), allocatable, target, optional, intent(inout) :: vrecv
+      integer, intent(out), optional                      :: err
+
+      if (present(vsend).and.present(vrecv)) then
+        call self%decomposition_update_sendrecv(vsend,vrecv,err)
+      elseif (present(vsend)) then
+        call self%decomposition_update_single(vsend,err)
+      else
+        call self%decomposition_update_bottom(err)
+      endif
+
+      end subroutine decomposition_update_alt
 
 !> finalize halo
 !dox @private
