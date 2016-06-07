@@ -109,16 +109,18 @@ module gabriel
 ! Unfortunately, this generic triggers an Intel compiler bug because of assumed-rank arrays, see topic 595234 in the Intel Forum
 !          generic   :: update => decomposition_update_single,decomposition_update_bottom,decomposition_update_sendrecv           !< update the decomposition
 ! This is a temporary fix to the compiler problem above. This fix resolves the right routine at runtime, not at compile-time,
-! and will therefore be slower
-          procedure   :: update => decomposition_update_alt           !< update the decomposition
+! and will therefore be slower.
+! As a workaround, the user could call the three underlying routines directly.
+! These should be private if the compiler works correctly.
+          procedure :: update => decomposition_update_alt           !< update the decomposition
           procedure :: autocreate => decomposition_autocreate   !< create autodecomposition
           procedure :: transform => create_reshuffle_           !< create transformation
           procedure :: halo => decomposition_halo               !< setup halos, but don't create
           procedure :: joined => decomposition_joined           !< setup joined decomposition
           procedure :: joined_add => decomposition_joined_add   !< add variable to joined decomposition
-          procedure, private :: decomposition_update_single           !< update the decomposition
-          procedure, private :: decomposition_update_bottom           !< update the decomposition
-          procedure, private :: decomposition_update_sendrecv         !< update the decomposition
+          procedure, public :: decomposition_update_single           !< update the decomposition
+          procedure, public :: decomposition_update_bottom           !< update the decomposition
+          procedure, public :: decomposition_update_sendrecv         !< update the decomposition
       end type decomposition          
 
       contains 
@@ -151,7 +153,7 @@ module gabriel
         integer :: level
 
         if (level.ge.0 .and. level.le.4) verbose=level
-        if (level.ge.3)print*,'gabriel verbosity: ',level
+        if (level.ge.4) print*,'gabriel verbosity: ',level
       end subroutine
 
       logical function isdebug()
@@ -190,13 +192,15 @@ module gabriel
 
       subroutine error(errcode,s,err)
         use mpi
+        use, intrinsic :: iso_fortran_env, only : stderr => error_unit
+
         integer, intent(in)            :: errcode
         character(len=*), optional     :: s
         integer, intent(out), optional :: err
 
         integer                        :: mpierr
 
-        if (iserror().and.present(s)) print*,'Error: ',s
+        if (iserror().and.present(s)) write(stderr,*) 'Error: ',s
         if (.not.present(err)) then
           call MPI_Abort(MPI_COMM_WORLD,errcode,mpierr)
         else
@@ -265,7 +269,7 @@ module gabriel
               print*,'   Starts     :',starts
               print*,'   Lower bound:',sub%lb
             endif
-            call error(6,err=err)
+            call error(6,"Starting indices lower than lower bound of array",err)
             return
           endif
           sub%starts=starts-sub%lb
@@ -277,7 +281,7 @@ module gabriel
                 print*,'   Stops      :',stops
                 print*,'   Upper bound:',sub%ub
               endif
-              call error(7,err=err)
+              call error(7,"Stopping indices higher than upper bound of array",err)
               return
             endif
             sub%subsizes=stops-starts+1
@@ -290,7 +294,7 @@ module gabriel
                 print*,'   Starts+subsizes:',starts+subsizes
                 print*,'   Upper bound:',sub%ub
               endif
-              call error(8,err=err)
+              call error(8,"Starts+subsizes higher than upper bound of array",err)
               return
             endif
             sub%subsizes=subsizes
@@ -745,11 +749,17 @@ module gabriel
 
         r=rank(v)
         if (size(lower).ne.r) then
-          call error(12,"Size of lower bound array not equal to rank!",err)
+          call error(100,"Size of lower bound array not equal to rank!",err)
           return
         endif
         if (size(upper).ne.r) then
-          call error(13,"Size of upper bound array not equal to rank!",err)
+          call error(101,"Size of upper bound array not equal to rank!",err)
+          return
+        endif
+        if (any(lower.gt.upper)) then
+          if (isinfo())print*,'lower=',lower
+          if (isinfo())print*,'upper=',upper
+          call error(102,"Lower bound greater than upper bound!",err)
           return
         endif
 
@@ -757,7 +767,7 @@ module gabriel
         off=0
         if (present(offset)) then
           if (size(offset).ne.r) then
-            call error(16,"Size of offset array not equal to rank!",err)
+            call error(103,"Size of offset array not equal to rank!",err)
             return
           endif
           off=offset
@@ -772,11 +782,11 @@ module gabriel
         up=upper+off
 
         if (any(low.lt.lb)) then
-          call error(14,"Lower bound array incorrect!")
+          call error(104,"Lower bound array incorrect!",err)
           return
         endif
         if (any(up.gt.ub)) then
-          call error(15,"Upper bound array incorrect!")
+          call error(105,"Upper bound array incorrect!",err)
           return
         endif
 
@@ -805,7 +815,7 @@ module gabriel
              if (iserror())print*,'uppers=',uppers(:,i)
              if (iserror())print*,'lower=',low
              if (iserror())print*,'lowers=',lowers(:,i)
-             call error(16,"Overlap of active domains!",err)
+             call error(106,"Overlap of active domains!",err)
              return
           endif
 ! check for overlap of my active domain with other domains
@@ -816,7 +826,7 @@ module gabriel
              if (isinfo())print*,'lower=',max(lbs(:,i),low)-off
              if (isinfo())print*,'upper=',min(ubs(:,i),up)-off
             if (sendcount.gt.MAX_HALOS) then
-              call error(17,"Too many sends!",err)
+              call error(107,"Too many sends!",err)
               return
             endif
             sends(sendcount)=i-1
@@ -831,7 +841,7 @@ module gabriel
              if (isinfo())print*,'lower=',max(lb,lowers(:,i))-off
              if (isinfo())print*,'upper=',min(ub,uppers(:,i))-off
             if (recvcount.gt.MAX_HALOS) then
-              call error(18,"Too many receives!",err)
+              call error(108,"Too many receives!",err)
               return
             endif
             recvs(recvcount)=i-1
@@ -867,7 +877,7 @@ module gabriel
 ! send overlapping data from my active domain
               sendcount=sendcount+1
               if (sendcount.gt.MAX_HALOS) then
-                call error(19,"Too many sends!",err)
+                call error(109,"Too many sends!",err)
                 return
               endif
               sends(sendcount)=i-1
@@ -880,7 +890,7 @@ module gabriel
 ! receive overlapping data from other active domain
               recvcount=recvcount+1
               if (recvcount.gt.MAX_HALOS) then
-                call error(20,"Too many receives!",err)
+                call error(110,"Too many receives!",err)
                 return
               endif
               recvs(recvcount)=i-1
@@ -1050,7 +1060,7 @@ module gabriel
              if(isinfo())print*,'uppers=',uppers(:,i)
              if(isinfo())print*,'lower=',low
              if(isinfo())print*,'lowers=',lowers(:,i)
-             call error(28,"Overlap of active domains!")
+             call error(28,"Overlap of active domains!",err)
              return
           endif
 ! check for overlap of my active from-domain with other to-domains
@@ -1450,10 +1460,11 @@ logical recursive function signs(d,n) result(signsr)
                                                                         
 !> Commit a halo. If the object is a joined halo, it first creates the derived datatype.
 !dox @relates gabriel::halo
-      subroutine halo_commit(self) 
+      subroutine halo_commit(self,err) 
         use mpi 
                                                                         
         class(halo),intent(inout) :: self
+        integer, intent(out), optional :: err
 
         integer mpierr
                                                                         
@@ -1462,7 +1473,7 @@ logical recursive function signs(d,n) result(signsr)
           if (.not.j%initialized) then
             call MPI_Type_create_hindexed_block(j%n,1,j%variables,j%i%m,self%m,mpierr) 
             self%initialized=.true.
-            if(.not.self%is_absolute())call error(999,"Sanity check: type is joined, but not absolute")
+            if(.not.self%is_absolute()) call error(999,"Sanity check: type is joined, but not absolute",err)
           endif
         end select
 
