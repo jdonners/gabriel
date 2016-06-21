@@ -3,7 +3,7 @@ module gabriel
 !***********************************************************************
 ! contains info for the message passing
 !-----------------------------------------------------------------------
-      use mpi, only : MPI_ADDRESS_KIND,MPI_DATATYPE_NULL
+      use mpi, only : MPI_ADDRESS_KIND,MPI_DATATYPE_NULL, MPI_COMM_NULL
       implicit none 
 
       private
@@ -86,7 +86,9 @@ module gabriel
       type, public :: decomposition
         private
         integer :: comm_parent             !< parent communicator
-        integer :: comm                    !< communicator
+        integer :: comm=MPI_COMM_NULL      !< communicator
+        integer :: commsize                    !< communicator size
+        integer :: commrank                    !< communicator rank
         integer :: sends=0                 !< actual number of neighbors to send to
         integer :: recvs=0                 !< actual number of neighbors to receive from
         integer :: maxsends                !< max number of neighbors to send to
@@ -103,6 +105,7 @@ module gabriel
         type(halo),allocatable,dimension(:) :: recvhalos  !< halo types to receive
         contains
           procedure :: init => init_decomposition_              !< initialize decomposition
+          procedure :: is_initialized => decomposition_isinitialized              !< check initialized decomposition
           procedure :: add_send => add_decomposition_send_      !< add a neighbor to send to
           procedure :: add_recv => add_decomposition_recv_      !< add a neighbor to recv from
           procedure :: create => create_decomposition_          !< create the graph communicator of the decomposition
@@ -130,7 +133,7 @@ module gabriel
         integer :: v
 
         call get_environment_variable("GABRIEL_VERBOSE",verbosity)
-        read(verbosity,'(i)')v
+        read(verbosity,'(i3)')v
         call gabriel_set_verbosity(v)
 
       end subroutine
@@ -423,6 +426,17 @@ module gabriel
         endif
 
       end subroutine halo_joined_init
+
+      logical function decomposition_isinitialized(d)
+        class(decomposition),intent(in) :: d
+
+        if (d%comm.eq.MPI_COMM_NULL) then
+          decomposition_isinitialized=.false.
+        else
+          decomposition_isinitialized=.true.
+        endif
+
+      end function
 
 !> create a joined decomposition
 !dox @ relates gabriel::decomposition
@@ -790,9 +804,15 @@ module gabriel
           return
         endif
 
+        call MPIcheck(err)
+
+        if (d%is_initialized()) then
+          call error(200,"Decomposition already initialized!",err)
+          return
+        endif
+
 ! Possibly a check with a warning to see if the active domain equals the variable bounds, i.e. no halo regions
 
-        call MPIcheck(err)
         call MPI_Comm_Size(comm,commsize,mpierr)
         call MPI_Comm_Rank(comm,commrank,mpierr)
 
@@ -1033,6 +1053,13 @@ module gabriel
             return
           endif
           off=offset
+        endif
+
+        call MPIcheck(err)
+
+        if (d%is_initialized()) then
+          call error(200,"Decomposition already initialized!",err)
+          return
         endif
 
         call MPI_Comm_Size(comm,commsize,mpierr)

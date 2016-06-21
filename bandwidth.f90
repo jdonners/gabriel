@@ -79,7 +79,7 @@ program ex
   pow2=1
   do i=1,timeloop
     if (rank.eq.0.and.i.eq.pow2) then
-      write(*,'(i,a)')i,' '
+      write(*,'(i5,a1)')i,' '
       pow2=pow2*2
     endif
     call MPI_Barrier(MPI_COMM_WORLD,ierr)
