@@ -21,7 +21,8 @@ program ex
   integer hor,ver,pow2,s,realsize,realtype
   real*8 t0, t1,t,datasize
 
-  type(decomposition) :: d
+  type(box) :: bo
+  type(distribution) :: d
   call MPI_Init(ierr)
   call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
   call MPI_Comm_size(MPI_COMM_WORLD,mpisize,ierr)
@@ -59,7 +60,9 @@ program ex
 !  write(*,'(a,4i3)')'Size,Rank,hor,ver=',mpisize,rank,hor,ver
 
   call gabriel_init
-  call d%halo(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,s/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
+  
+  call bo%initialize(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,s/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
+  call d%halo(bo)
 !  call d%autocreate(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.false.,.false./))
   call d%joined(vars)
   call d%joined_add(a)
@@ -72,7 +75,7 @@ program ex
   do i=1,warmloop
     call d%update()
   enddo
-  if(rank.eq.0)print*,'Update decomposition..'
+  if(rank.eq.0)print*,'Apply distribution..'
   call gabriel_disable_checking
 
   t=0.0

@@ -6,13 +6,14 @@ program ex1d
 
   integer,parameter :: n=10
 
+  logical :: correct = .true.
 !  real,dimension(:,:,:),allocatable :: a,b
   real,dimension(:),allocatable :: a,b
   real,dimension(:,:),allocatable :: c
   integer ierr,rank,right,left,mpisize,i,j,k
 
   type(halo) :: h(10,2)
-  type(decomposition) :: d
+
   call MPI_Init(ierr)
   call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
   call MPI_Comm_size(MPI_COMM_WORLD,mpisize,ierr)
@@ -30,8 +31,9 @@ program ex1d
   print*,'Define subarray halos..'
   call h(1,1)%subarray(a,(/n,n/),(/n,n/),err=ierr)
   print*,'Errorcode: ',ierr
-
+  if (ierr.ne.6) correct=.false.
   call MPI_Finalize(ierr)
+  if (.not.correct) stop 1
 
 end
 

@@ -12,7 +12,7 @@ program ex1d
   integer ierr,rank,right,left,mpisize,i,j,k
 
   type(halo) :: h(10,2)
-  type(decomposition) :: d
+  type(distribution) :: d
   call MPI_Init(ierr)
   call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
   call MPI_Comm_size(MPI_COMM_WORLD,mpisize,ierr)

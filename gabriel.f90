@@ -15,7 +15,7 @@ module gabriel
 
 ! Verbosity levels
 ! 0 : no verbosity
-! 1 : only errors
+! 1 : only errors (default)
 ! 2 : add warnings
 ! 3 : add info
 ! 4 : add debug 
@@ -47,6 +47,7 @@ module gabriel
           procedure :: add_joined
           procedure :: commit => halo_commit                      !< commit halo datatype and create joined datatype
           procedure :: subarray => create_subarray                !< Create a subarray type
+          procedure, private :: create_subarray_bounds                !< Create a subarray type with bounds of array
           procedure :: is_valid_halo => check_halo                 !< Verify a halo
           procedure :: is_absolute => halo_is_absolute       !< Is a halo absolute?
           procedure :: print => print_halo            !< print halo
@@ -67,6 +68,29 @@ module gabriel
           procedure :: print => print_subarray                 !< print a subarray
       end type
 
+!> Type to describe a composition
+      type, private :: composition
+        integer                         :: comm=MPI_COMM_NULL          !< MPI communicator
+        contains
+          procedure :: is_initialized => composition_isinitialized
+          final :: composition_finalize                     !< Finalize a composition
+      end type
+
+      type, extends(composition), public :: box
+        private
+        integer                 :: ndim                        !< dimension of array
+        integer,dimension(:),allocatable :: lb                 !< lower bounds of array
+        integer,dimension(:),allocatable :: ub                 !< upper bounds of array
+        integer,dimension(:),allocatable :: lower              !< lower bounds of active region
+        integer,dimension(:),allocatable :: upper              !< upper bounds of active region
+        integer,dimension(:),allocatable :: offset             !< offset of bounds in composition
+        integer,dimension(:),allocatable :: lower_comp         !< lower bounds of composition
+        integer,dimension(:),allocatable :: upper_comp         !< upper bounds of composition
+        logical,dimension(:),allocatable :: periodic           !< periodicity of composition for each dimension
+        contains
+          procedure :: initialize => box_initialize !< Initialize a box composition
+      end type
+
 !> Type to combine multiple halos of the same variable
       type, extends(halo) :: combined
         integer :: n                                           !< number of halos
@@ -82,8 +106,8 @@ module gabriel
         integer(MPI_ADDRESS_KIND),dimension(:),allocatable :: variables !< multiple variables
       end type
 
-!> Type to define decomposition
-      type, public :: decomposition
+!> Type to define distribution
+      type, public :: distribution
         private
         integer :: comm_parent             !< parent communicator
         integer :: comm=MPI_COMM_NULL      !< communicator
@@ -104,27 +128,27 @@ module gabriel
         type(halo),allocatable,dimension(:) :: sendhalos  !< halo types to send
         type(halo),allocatable,dimension(:) :: recvhalos  !< halo types to receive
         contains
-          procedure :: init => init_decomposition_              !< initialize decomposition
-          procedure :: is_initialized => decomposition_isinitialized              !< check initialized decomposition
-          procedure :: add_send => add_decomposition_send_      !< add a neighbor to send to
-          procedure :: add_recv => add_decomposition_recv_      !< add a neighbor to recv from
-          procedure :: create => create_decomposition_          !< create the graph communicator of the decomposition
+          procedure :: init => init_distribution_              !< initialize distribution
+          procedure :: is_initialized => distribution_isinitialized              !< check initialized distribution
+          procedure :: add_send => add_distribution_send_      !< add a neighbor to send to
+          procedure :: add_recv => add_distribution_recv_      !< add a neighbor to recv from
+          procedure :: create => create_distribution_          !< create the graph communicator of the distribution
 ! Unfortunately, this generic triggers an Intel compiler bug because of assumed-rank arrays, see topic 595234 in the Intel Forum
-!          generic   :: update => decomposition_update_single,decomposition_update_bottom,decomposition_update_sendrecv           !< update the decomposition
+!          generic   :: update => distribution_update_single,distribution_update_bottom,distribution_update_sendrecv           !< update the distribution
 ! This is a temporary fix to the compiler problem above. This fix resolves the right routine at runtime, not at compile-time,
 ! and will therefore be slower.
 ! As a workaround, the user could call the three underlying routines directly.
 ! These should be private if the compiler works correctly.
-          procedure :: update => decomposition_update_alt           !< update the decomposition
-          procedure :: autocreate => decomposition_autocreate   !< create autodecomposition
+          procedure :: update => distribution_update_alt           !< update the distribution
+          procedure :: autocreate => distribution_autocreate   !< create autodistribution
           procedure :: transform => create_reshuffle_           !< create transformation
-          procedure :: halo => decomposition_halo               !< setup halos, but don't create
-          procedure :: joined => decomposition_joined           !< setup joined decomposition
-          procedure :: joined_add => decomposition_joined_add   !< add variable to joined decomposition
-          procedure, public :: decomposition_update_single           !< update the decomposition
-          procedure, public :: decomposition_update_bottom           !< update the decomposition
-          procedure, public :: decomposition_update_sendrecv         !< update the decomposition
-      end type decomposition          
+          procedure :: halo => distribution_halo               !< setup halos, but don't create
+          procedure :: joined => distribution_joined           !< setup joined distribution
+          procedure :: joined_add => distribution_joined_add   !< add variable to joined distribution
+          procedure, public :: distribution_update_single           !< update the distribution
+          procedure, public :: distribution_update_bottom           !< update the distribution
+          procedure, public :: distribution_update_sendrecv         !< update the distribution
+      end type distribution          
 
       contains 
 
@@ -221,13 +245,14 @@ module gabriel
 
       end function
 
-      subroutine create_subarray(self,array,starts,stops,subsizes,err)
+      subroutine create_subarray_bounds(self,lb,ub,starts,stops,subsizes,err)
 !! Create type to combine different halos.
-!! This is used to communicate a subarray of a larger array
+!! This is used to communicate a subarray of a larger array and it takes upper- and lower bounds of the array
         use mpi
 
         class(halo)                                             :: self           !< halo
-        real, intent(in), dimension(..), allocatable            :: array          !< input array
+        integer, intent(in), dimension(:)                       :: lb         !< lower bounds of subarray
+        integer, intent(in), dimension(:)                       :: ub         !< upper bounds of subarray
         integer, intent(in), dimension(:)                       :: starts         !< starting indices of subarray
         integer, intent(in), dimension(:), optional             :: stops          !< stopping indices of subarray
         integer, intent(in), dimension(:), optional             :: subsizes       !< subsizes of subarray
@@ -236,8 +261,7 @@ module gabriel
         integer           :: mpierr
         integer           :: ndim
         real              :: dummyreal
-
-        if (present(err)) err=0
+        
 ! check arguments
         if (present(stops).and.present(subsizes)) then
           call error(4,"both stops and subsizes defined. Please define only one.",err)
@@ -247,7 +271,9 @@ module gabriel
           return
         endif
 
-        ndim=rank(array)
+! internal routine, so we assume that lb and ub have the same size
+
+        ndim=size(lb)
 
 ! allocate subarray halo type
         allocate(subarray :: self%i)
@@ -261,9 +287,9 @@ module gabriel
           allocate(sub%sizes(ndim))
           allocate(sub%subsizes(ndim))
           allocate(sub%starts(ndim))
-          sub%lb=lbound(array)
-          sub%ub=ubound(array)
-          sub%sizes=shape(array)
+          sub%lb=lb
+          sub%ub=ub
+          sub%sizes=ub-lb+1
 
 ! check bounds
           if (any(starts.lt.sub%lb)) then
@@ -313,6 +339,29 @@ module gabriel
         end select ! sub => h%i
         call MPI_Type_commit(self%m,mpierr)
         self%initialized=.true.
+
+       end subroutine create_subarray_bounds
+       
+      subroutine create_subarray(self,array,starts,stops,subsizes,err)
+!! Create type to combine different halos.
+!! This is used to communicate a subarray of a larger array
+        use mpi
+
+        class(halo)                                             :: self           !< halo
+        real, intent(in), dimension(..), allocatable            :: array          !< input array
+        integer, intent(in), dimension(:)                       :: starts         !< starting indices of subarray
+        integer, intent(in), dimension(:), optional             :: stops          !< stopping indices of subarray
+        integer, intent(in), dimension(:), optional             :: subsizes       !< subsizes of subarray
+        integer, intent(out), optional                          :: err            !< error code
+
+        integer           :: mpierr
+        integer           :: ndim
+        real              :: dummyreal
+
+        if (present(err)) err=0
+
+        call self%create_subarray_bounds(lbound(array),ubound(array),starts,stops,subsizes,err)
+        
       end subroutine create_subarray
 
 !> Create type to combine different halos.
@@ -427,25 +476,36 @@ module gabriel
 
       end subroutine halo_joined_init
 
-      logical function decomposition_isinitialized(d)
-        class(decomposition),intent(in) :: d
+      logical function distribution_isinitialized(d)
+        class(distribution),intent(in) :: d
 
         if (d%comm.eq.MPI_COMM_NULL) then
-          decomposition_isinitialized=.false.
+          distribution_isinitialized=.false.
         else
-          decomposition_isinitialized=.true.
+          distribution_isinitialized=.true.
         endif
 
       end function
 
-!> create a joined decomposition
-!dox @ relates gabriel::decomposition
-      subroutine decomposition_joined(self,n,err)
+      logical function composition_isinitialized(c)
+        class(composition),intent(in) :: c
+
+        if (c%comm.eq.MPI_COMM_NULL) then
+          composition_isinitialized=.false.
+        else
+          composition_isinitialized=.true.
+        endif
+
+      end function
+
+!> create a joined distribution
+!dox @ relates gabriel::distribution
+      subroutine distribution_joined(self,n,err)
 ! The resulting halo is based on absolute addresses, so it will be communicated
 ! with MPI_BOTTOM as both sending and receiving buffers.
         use mpi
 
-        class(decomposition),intent(inout) :: self
+        class(distribution),intent(inout) :: self
         integer,intent(in)        :: n
         integer,intent(out),optional :: err
 
@@ -467,14 +527,14 @@ module gabriel
           call self%recvhalos(i)%joined(n,err)
         enddo
 
-      end subroutine decomposition_joined
+      end subroutine distribution_joined
 
 !> add a variable to a joined halo type
 !dox @relates gabriel::subarray
-      subroutine decomposition_joined_add(self,v,err)
+      subroutine distribution_joined_add(self,v,err)
         use mpi
 
-        class(decomposition), intent(inout) :: self
+        class(distribution), intent(inout) :: self
         real, dimension(:,:,:), allocatable, intent(in)    :: v
         integer, intent(out), optional :: err
                                                                         
@@ -489,7 +549,7 @@ module gabriel
           call self%recvhalos(i)%add_joined(v,err)
         enddo
 
-      end subroutine decomposition_joined_add
+      end subroutine distribution_joined_add
 
 !> print a halo
 !dox @relates gabriel::halo
@@ -557,10 +617,10 @@ module gabriel
                                                                         
       end subroutine add_joined
 
-!> Initialize a decomposition
-!dox @relates gabriel::decomposition
-      subroutine init_decomposition_(d,sends,recvs,comm,err)
-        class(decomposition), intent(out)                  :: d
+!> Initialize a distribution
+!dox @relates gabriel::distribution
+      subroutine init_distribution_(d,sends,recvs,comm,err)
+        class(distribution), intent(out)                  :: d
         integer, intent(in)                                :: sends,recvs,comm
         integer, intent(out), optional                     :: err
 
@@ -584,13 +644,13 @@ module gabriel
         allocate(d%sendweights(sends))
         allocate(d%recvweights(recvs))
 
-      end subroutine init_decomposition_
+      end subroutine init_distribution_
 
-!> Add a receive to a decomposition
-!dox @relates gabriel::decomposition
-      subroutine add_decomposition_recv_(d,rank,h,err)
+!> Add a receive to a distribution
+!dox @relates gabriel::distribution
+      subroutine add_distribution_recv_(d,rank,h,err)
         use mpi
-        class(decomposition), intent(inout)                 :: d
+        class(distribution), intent(inout)                 :: d
         type(halo), intent(in)                             :: h
         integer, intent(in)                                :: rank
         integer, intent(out), optional                     :: err
@@ -611,13 +671,13 @@ module gabriel
         d%recvweights(n)=1
         d%recvs=n
 
-      end subroutine add_decomposition_recv_
+      end subroutine add_distribution_recv_
 
-!> Add a send to a decomposition
-!dox @relates gabriel::decomposition
-      subroutine add_decomposition_send_(d,rank,h,err)
+!> Add a send to a distribution
+!dox @relates gabriel::distribution
+      subroutine add_distribution_send_(d,rank,h,err)
         use mpi
-        class(decomposition), intent(inout)                 :: d
+        class(distribution), intent(inout)                 :: d
         type(halo), intent(in)                             :: h
         integer, intent(in)                                :: rank
         integer, intent(out), optional                     :: err
@@ -638,13 +698,13 @@ module gabriel
         d%sendweights(n)=1
         d%sends=n
 
-      end subroutine add_decomposition_send_
+      end subroutine add_distribution_send_
 
-!> Commit a decomposition
-!dox @relates gabriel::decomposition
-      subroutine create_decomposition_(d,i,reorder,err)
+!> Commit a distribution
+!dox @relates gabriel::distribution
+      subroutine create_distribution_(d,i,reorder,err)
         use mpi
-        class(decomposition), intent(inout)           :: d            !< decomposition type
+        class(distribution), intent(inout)           :: d            !< distribution type
         integer, optional, intent(in)                 :: i            !< MPI_Info, default MPI_INFO_NULL
         logical, optional, intent(in)                 :: reorder      !< reorder, default .true.
         integer, intent(out), optional                 :: err         !< error indicator
@@ -683,6 +743,7 @@ module gabriel
 !combine receive halos from the same rank into one combined type
             call h%combined(pack(d%recvhalos(1:d%recvs),d%recvranks(1:d%recvs).eq.n),err=err)
             if (isnonzero(err))return
+!remove those receive halos from distribution
             cnt=count(d%recvranks(1:d%recvs).ne.n)
             d%recvhalos(1:cnt)=pack(d%recvhalos(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
             d%recvdispls(1:cnt)=pack(d%recvdispls(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
@@ -690,7 +751,7 @@ module gabriel
             d%recvweights(1:cnt)=pack(d%recvweights(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
             d%recvranks(1:cnt)=pack(d%recvranks(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
             d%recvs=cnt
-!add combined type
+!add combined halo to the distribution
             call d%add_recv(n,h,err=err)
             if (isnonzero(err))return
           endif
@@ -699,7 +760,7 @@ module gabriel
 !combine send halos to the same rank into one combined type
             call h%combined(pack(d%sendhalos(1:d%sends),d%sendranks(1:d%sends).eq.n),err=err)
             if (isnonzero(err))return
-!remove separate types from send arrays
+!remove those send halos from distribution
             cnt=count(d%sendranks(1:d%sends).ne.n)
             d%sendhalos(1:cnt)=pack(d%sendhalos(1:d%sends),d%sendranks(1:d%sends).ne.n)
             d%senddispls(1:cnt)=pack(d%senddispls(1:d%sends),d%sendranks(1:d%sends).ne.n)
@@ -707,7 +768,7 @@ module gabriel
             d%sendweights(1:cnt)=pack(d%sendweights(1:d%sends),d%sendranks(1:d%sends).ne.n)
             d%sendranks(1:cnt)=pack(d%sendranks(1:d%sends),d%sendranks(1:d%sends).ne.n)
             d%sends=cnt
-!add combined type
+!add combined halo to the distribution
             call d%add_send(n,h,err=err)
             if (isnonzero(err))return
           endif
@@ -720,20 +781,142 @@ module gabriel
           return
         endif
 
-      end subroutine create_decomposition_
+      end subroutine create_distribution_
 
-!> Automatically create a decomposition with all halos.
-!> This is a collective MPI call.
-!dox @relates gabriel::decomposition
-      subroutine decomposition_halo(d,v,lower,upper,comm,offset,periodic,err)
+      subroutine box_initialize(comp,v,lower,upper,comm,offset,periodic,err)
         use mpi
-        class(decomposition), intent(inout)            :: d    !< Resulting decomposition
-        real, dimension(..), allocatable, intent(in)   :: v    !< variable to create halos for
+        class(box), intent(inout)            :: comp           !< Resulting box composition
+        real, dimension(..), allocatable, intent(in)   :: v    !< variable to create composition for
         integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
         integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
         integer, intent(in)               :: comm              !< communicator
-        integer, dimension(:), intent(in), optional :: offset  !< offset of array indices
-        logical, dimension(:), intent(in), optional :: periodic       !< periodicity of global domain
+        integer, dimension(:), intent(in), optional :: offset  !< offset of array indices in composition
+        logical, dimension(:), intent(in), optional :: periodic  !< periodicity of dimensions in composition
+        integer, intent(out), optional :: err  !< error indicator
+
+        integer, parameter            :: MAX_HALOS = 30
+        integer :: r
+        integer,dimension(:),allocatable :: lb,ub,off
+        integer,dimension(:),allocatable :: shf
+        integer,dimension(:),allocatable :: low,up
+        integer,dimension(:,:),allocatable :: lshalo,ushalo
+        integer,dimension(:,:),allocatable :: lrhalo,urhalo
+        integer,dimension(:,:),allocatable :: lowers,uppers
+        integer,dimension(:,:),allocatable :: lbs,ubs
+        integer,dimension(:),allocatable :: global_low,global_up
+        logical,dimension(:),allocatable :: per
+        integer :: commsize,mpierr,commrank
+        integer :: i
+        type(halo) :: h
+
+        if (present(err)) err=0
+
+        r=rank(v)
+        if (size(lower).ne.r) then
+          call error(100,"Size of lower bound array not equal to rank!",err)
+          return
+        endif
+        if (size(upper).ne.r) then
+          call error(101,"Size of upper bound array not equal to rank!",err)
+          return
+        endif
+        if (any(lower.gt.upper)) then
+          if (isinfo())print*,'lower=',lower
+          if (isinfo())print*,'upper=',upper
+          call error(102,"Lower bound greater than upper bound!",err)
+          return
+        endif
+
+        if (present(offset)) then
+          if (size(offset).ne.r) then
+            call error(103,"Size of offset array not equal to rank!",err)
+            return
+          endif
+        endif
+
+        if (present(periodic)) then
+          if (size(periodic).ne.r) then
+            call error(106,"Size of periodic array not equal to rank!",err)
+            return
+          endif
+        endif
+
+        if (any(lower.lt.lbound(v))) then
+          call error(104,"Lower bound of active domain out-of-bounds!",err)
+          return
+        endif
+        if (any(upper.gt.ubound(v))) then
+          call error(105,"Upper bound of active domain out-of-bounds!",err)
+          return
+        endif
+
+! Checks completed
+
+        if (comp%is_initialized()) then
+          if (isinfo()) then
+            print*,'Composition already initialized. Reinitializing..'
+          endif
+          call MPI_Comm_free(comp%comm,mpierr)
+          comp%comm=MPI_COMM_NULL
+          deallocate(comp%lb,comp%ub,comp%lower,comp%upper,comp%offset, &
+          &  comp%lower_comp,comp%upper_comp,comp%periodic)
+        endif
+
+        comp%ndim=r
+        allocate(comp%lb(r),comp%ub(r),comp%lower(r),comp%upper(r),comp%offset(r))
+        allocate(comp%lower_comp(r),comp%upper_comp(r),comp%periodic(r))
+        call MPI_Comm_dup(comm,comp%comm,mpierr)
+        comp%lb=lbound(v)
+        comp%ub=ubound(v)
+        comp%lower=lower
+        comp%upper=upper
+        comp%offset=0
+        if(present(offset)) comp%offset=offset
+        comp%periodic=.false.
+        if (present(periodic)) comp%periodic=periodic
+
+        call MPI_Allreduce(comp%lower,comp%lower_comp,r,MPI_INTEGER,MPI_MIN,comm,mpierr)
+        call MPI_Allreduce(comp%upper,comp%upper_comp,r,MPI_INTEGER,MPI_MAX,comm,mpierr)
+
+end subroutine box_initialize
+
+subroutine composition_finalize(comp)
+        type(composition), intent(inout)            :: comp           !< Resulting box composition
+
+        integer mpierr
+        
+        if (comp%comm.ne.MPI_COMM_NULL) then
+          call MPI_Comm_free(comp%comm,mpierr)
+          comp%comm=MPI_COMM_NULL
+        endif
+
+end subroutine composition_finalize
+
+!> Automatically create a distribution with all halos.
+!> This is a collective MPI call.
+!dox @relates gabriel::distribution
+      subroutine distribution_halo(dist,comp,err)
+        use mpi
+        class(distribution), intent(inout)          :: dist    !< Resulting distribution
+        class(composition), intent(in)            :: comp    !< Input composition
+        integer, intent(out), optional :: err  !< error indicator
+
+        select type(comp)
+        type is (box)
+          call distribution_halo_box(dist,comp,err)
+        class default
+          call error(200,"composition unknown!",err)
+        end select
+        
+      end
+
+!> Automatically create a distribution with all halos.
+!> This is a collective MPI call.
+!dox @relates gabriel::distribution
+      subroutine distribution_halo_box(dist,comp,err)
+        use mpi
+        class(distribution), intent(inout)          :: dist    !< Resulting distribution
+        class(box), intent(in)                      :: comp    !< Input composition
         integer, intent(out), optional :: err  !< error indicator
 !        integer, dimension(:), intent(in), optional :: global_lower   !< lower bound of global domain
 !        integer, dimension(:), intent(in), optional :: global_upper   !< upper bound of global domain
@@ -753,66 +936,42 @@ module gabriel
         integer,dimension(:,:),allocatable :: lbs,ubs
         integer,dimension(:),allocatable :: global_low,global_up
         logical,dimension(:),allocatable :: per
-        integer :: commsize,mpierr,commrank
+        integer :: comm,commsize,mpierr,commrank
         integer :: i
         type(halo) :: h
+
+        if (dist%is_initialized()) then
+          call error(200,"distribution already initialized!",err)
+          return
+        endif
+
+        if (.not.comp%is_initialized()) then
+          call error(201,"composition not initialized!",err)
+          return
+        endif
 
         if (present(err)) err=0
         sendcount=0
         recvcount=0
 
-        r=rank(v)
-        if (size(lower).ne.r) then
-          call error(100,"Size of lower bound array not equal to rank!",err)
-          return
-        endif
-        if (size(upper).ne.r) then
-          call error(101,"Size of upper bound array not equal to rank!",err)
-          return
-        endif
-        if (any(lower.gt.upper)) then
-          if (isinfo())print*,'lower=',lower
-          if (isinfo())print*,'upper=',upper
-          call error(102,"Lower bound greater than upper bound!",err)
-          return
-        endif
+        r=comp%ndim
 
         allocate(off(r))
-        off=0
-        if (present(offset)) then
-          if (size(offset).ne.r) then
-            call error(103,"Size of offset array not equal to rank!",err)
-            return
-          endif
-          off=offset
-        endif
+        off=comp%offset
 
         allocate(lb(r),ub(r))
         allocate(low(r),up(r))
 
-        lb=lbound(v)+off
-        ub=ubound(v)+off
-        low=lower+off
-        up=upper+off
-
-        if (any(low.lt.lb)) then
-          call error(104,"Lower bound array incorrect!",err)
-          return
-        endif
-        if (any(up.gt.ub)) then
-          call error(105,"Upper bound array incorrect!",err)
-          return
-        endif
+        lb=comp%lb+off
+        ub=comp%ub+off
+        low=comp%lower+off
+        up=comp%upper+off
 
         call MPIcheck(err)
 
-        if (d%is_initialized()) then
-          call error(200,"Decomposition already initialized!",err)
-          return
-        endif
+! TODO: check if the active domain equals the variable bounds, i.e. no halo regions
 
-! Possibly a check with a warning to see if the active domain equals the variable bounds, i.e. no halo regions
-
+        comm=comp%comm
         call MPI_Comm_Size(comm,commsize,mpierr)
         call MPI_Comm_Rank(comm,commrank,mpierr)
 
@@ -828,7 +987,7 @@ module gabriel
         allocate(lshalo(r,MAX_HALOS),ushalo(r,MAX_HALOS))
         allocate(lrhalo(r,MAX_HALOS),urhalo(r,MAX_HALOS))
         do i=1,commsize
-        if (i-1.ne.commrank) then  
+        if (i-1.ne.commrank) then
 ! check for overlap of active domains, if so, error!
           if (all(up.ge.lowers(:,i)).and.all(low.le.uppers(:,i))) then
              if (iserror())print*,'upper=',up
@@ -839,6 +998,7 @@ module gabriel
              return
           endif
 ! check for overlap of my active domain with other domains
+          if(isinfo())write(*,'(a,5i4)')'Overlap of my active domain: rank,up,lowers,low,uppers=',commrank,up,lbs(:,i),low,ubs(:,i)
           if (all(up.ge.lbs(:,i)).and.all(low.le.ubs(:,i))) then
 ! send overlapping data from my active domain
             sendcount=sendcount+1
@@ -854,6 +1014,8 @@ module gabriel
             ushalo(:,sendcount)=min(ubs(:,i),up)-off
           endif
 ! check for overlap of my full domain with other active domains
+          if(isinfo())write(*,'(a,5i4)')'Overlap of my full domain: rank,ub (.ge.) lowers,lb (.le.) uppers=', &
+            & commrank,ub,lowers(:,i),lb,uppers(:,i)
           if (all(ub.ge.lowers(:,i)).and.all(lb.le.uppers(:,i))) then
 ! receive overlapping data from other active domain
             recvcount=recvcount+1
@@ -874,19 +1036,19 @@ module gabriel
 ! check for periodicity arguments
 ! if global bounds are used: check if defined global upper and lower bounds really are the maximum boundary values
 !        if (present(periodic).and.present(global_lower).and.present(global_upper)) then
-        if (present(periodic)) then
+        if (any(comp%periodic)) then
           allocate(global_low(r),global_up(r))
           global_low=minval(lowers,dim=2)
           global_up=maxval(uppers,dim=2)
           if (isinfo().and.commrank.eq.0) then
-            print*,'Requested periodicity: ',periodic
+            print*,'Requested periodicity: ',comp%periodic
             print*,'Global lower bounds: ',global_low
             print*,'Global upper bounds: ',global_up
           endif
           allocate(per(r))
-          per=periodic
+          per=comp%periodic
           allocate(shf(r))
-          if (any(periodic)) then
+          if (any(per)) then
           do
           shf=merge(global_up-global_low+1,0,per)
           do
@@ -921,24 +1083,24 @@ module gabriel
           enddo
           if (.not.signs(shf)) exit
           enddo ! do signed
-          if (.not.combo(periodic,per)) exit
+          if (.not.combo(comp%periodic,per)) exit
           enddo ! do combo
           endif
           deallocate(global_low,global_up,shf,per)
         endif
 
-        call d%init(sendcount,recvcount,comm,err=err)
+        call dist%init(sendcount,recvcount,comm,err=err)
         if (isnonzero(err)) return
         do i=1,recvcount
-          call h%subarray(v,lrhalo(:,i),urhalo(:,i),err=err)
+          call h%create_subarray_bounds(comp%lb,comp%ub,lrhalo(:,i),urhalo(:,i),err=err)
           if (isnonzero(err)) return
-          call d%add_recv(recvs(i),h,err=err)
+          call dist%add_recv(recvs(i),h,err=err)
           if (isnonzero(err)) return
         enddo
         do i=1,sendcount
-          call h%subarray(v,lshalo(:,i),ushalo(:,i),err=err)
+          call h%create_subarray_bounds(comp%lb,comp%ub,lshalo(:,i),ushalo(:,i),err=err)
           if (isnonzero(err)) return
-          call d%add_send(sends(i),h,err=err)
+          call dist%add_send(sends(i),h,err=err)
           if (isnonzero(err)) return
         enddo
 
@@ -948,11 +1110,11 @@ module gabriel
         deallocate(lbs,ubs)
         deallocate(lowers,uppers)
 
-      end subroutine decomposition_halo
+      end subroutine distribution_halo_box
 
-      subroutine decomposition_autocreate(d,v,lower,upper,comm,offset,periodic,err)
+      subroutine distribution_autocreate(d,v,lower,upper,comm,offset,periodic,err)
         use mpi
-        class(decomposition), intent(inout)            :: d    !< Resulting decomposition
+        class(distribution), intent(inout)            :: d    !< Resulting distribution
         real, dimension(..), allocatable, intent(in)   :: v    !< variable to create halos for
         integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
         integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
@@ -963,30 +1125,57 @@ module gabriel
 !        integer, dimension(:), intent(in), optional :: global_lower   !< lower bound of global domain
 !        integer, dimension(:), intent(in), optional :: global_upper   !< upper bound of global domain
 
-        call d%halo(v,lower,upper,comm,offset,periodic,err)
+        type(box) :: b
+        
+        call b%initialize(v,lower,upper,comm,offset,periodic,err)
+        call d%halo(b,err)
         call d%create(err=err)
-      end subroutine decomposition_autocreate
+      end subroutine distribution_autocreate
    
 !> Automatically create a transformation with all halos.
 !> This is a collective MPI call.
-!dox @relates gabriel::decomposition
-      subroutine create_reshuffle_(d,vfrom,vto,lower,upper,comm,offset,err)
+!dox @relates gabriel::distribution
+      subroutine create_reshuffle_(d,cfrom,cto,err)
         use mpi
-        class(decomposition), intent(inout)            :: d    !< Resulting decomposition
-        real, dimension(..), allocatable, intent(in)   :: vfrom    !< variable to create halos for
-        real, dimension(..), allocatable, intent(in)   :: vto    !< variable to create halos for
-        integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
-        integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
-        integer, intent(in)               :: comm              !< communicator
-        integer, dimension(:), intent(in), optional :: offset  !< offset of array indices
+        class(distribution), intent(inout)            :: d    !< Resulting distribution
+        class(composition),intent(in)                 :: cfrom,cto !< Compositions to transform from and to 
         integer, intent(out), optional :: err  !< error indicator
+        integer :: cmp, mpierr
+
+        call MPI_Comm_compare(cfrom%comm,cto%comm,cmp,mpierr)
+        if (cmp.ne.MPI_CONGRUENT) then
+          call error(203,"Source and target composition communicator not equal!",err)
+          return
+        endif
+
+        if (.not.same_type_as(cfrom,cto)) then
+          call error(202,"Source and target composition type not equal!",err)
+          return
+        endif
+        
+        select type(cfrom)
+        type is (box)
+          call create_reshuffle_box(d,cfrom,cto,err)
+        class default
+          call error(200,"composition unknown!",err)
+        end select
+        
+      end subroutine create_reshuffle_
+      
+      subroutine create_reshuffle_box(d,cfrom,cto,err)
+        use mpi
+        class(distribution), intent(inout)            :: d     !< Resulting distribution
+        class(box), intent(in)                        :: cfrom  !< Source composition to transform
+        class(composition), intent(in)                :: cto    !< Target composition to transform
+        integer, intent(out), optional :: err  !< error indicator
+
         integer, parameter            :: MAX_HALOS = 100
         integer :: sendcount
         integer :: recvcount
         integer,dimension(MAX_HALOS) :: sends
         integer,dimension(MAX_HALOS) :: recvs
         integer :: r
-        integer,dimension(:),allocatable :: lb,ub,off
+        integer,dimension(:),allocatable :: lb,ub,off_from,off_to,off
         integer,dimension(:),allocatable :: to_lb,to_ub
         integer,dimension(:),allocatable :: low,up
         integer,dimension(:,:),allocatable :: lshalo,ushalo
@@ -996,7 +1185,7 @@ module gabriel
         integer,dimension(:,:),allocatable :: to_lbs,to_ubs
         integer,dimension(:),allocatable :: global_low,global_up
         logical,dimension(:),allocatable :: per
-        integer :: commsize,mpierr,commrank
+        integer :: comm,commsize,mpierr,commrank
         integer :: i
         type(halo) :: h
 
@@ -1005,63 +1194,44 @@ module gabriel
         recvcount=0
 
         call debug("Creating transform..")
-        r=rank(vfrom)
-        if (rank(vto).ne.r) then
+        select type (cto)
+          type is (box)
+        
+        if (cfrom%ndim.ne.cto%ndim) then
           call error(21,"Ranks of from- and to-arrays do not match!",err)
           return
         endif
-        if (size(lower).ne.r) then
-          call error(22,"Size of lower bound array not equal to rank!",err)
-          return
-        endif
-        if (size(upper).ne.r) then
-          call error(23,"Size of upper bound array not equal to rank!",err)
+
+        if (any(cfrom%offset.ne.0 .or. cto%offset.ne.0)) then
+          call error(204,"Offset for transform not yet supported!",err)
           return
         endif
 
+        r=cfrom%ndim
         allocate(lb(r),ub(r))
         allocate(low(r),up(r))
         allocate(to_lb(r),to_ub(r))
 
-        lb=lbound(vfrom)
-        ub=ubound(vfrom)
-        low=lower
-        up=upper
-        to_lb=lbound(vto)
-        to_ub=ubound(vto)
+        lb=cfrom%lb
+        ub=cfrom%lb
+        low=cfrom%lower
+        up=cfrom%upper
+        to_lb=cto%lb
+        to_ub=cto%ub
 
-        if (any(low.lt.lb)) then
-             if (iserror())print*,'lower=',low
-             if (iserror())print*,'lbound=',lb
-          call error(24,"Lower bound array incorrect!",err)
-          return
-        endif
-        if (any(up.gt.ub)) then
-             if (iserror())print*,'upper=',up
-             if (iserror())print*,'ubound=',ub
-             call error(25,"Upper bound array incorrect!",err)
-          return
-        endif
-
-        allocate(off(r))
+        allocate(off_from(r),off_to(r),off(r))
+        off_from=cfrom%offset
+        off_to=cto%offset
         off=0
-        if (present(offset)) then
-          call error(26,"Offset not yet implemented for transform!",err)
-          return
-          if (size(offset).ne.r) then
-            call error(27,"Size of offset array not equal to rank!",err)
-            return
-          endif
-          off=offset
-        endif
-
+        
         call MPIcheck(err)
 
         if (d%is_initialized()) then
-          call error(200,"Decomposition already initialized!",err)
+          call error(200,"distribution already initialized!",err)
           return
         endif
 
+        comm=cfrom%comm
         call MPI_Comm_Size(comm,commsize,mpierr)
         call MPI_Comm_Rank(comm,commrank,mpierr)
 
@@ -1119,13 +1289,13 @@ module gabriel
         call d%init(sendcount,recvcount,comm,err=err)
         if (isnonzero(err)) return
         do i=1,recvcount
-          call h%subarray(vto,lrhalo(:,i),urhalo(:,i),err=err)
+          call h%create_subarray_bounds(cto%lb,cto%ub,lrhalo(:,i),urhalo(:,i),err=err)
           if (isnonzero(err)) return
           call d%add_recv(recvs(i),h,err=err)
           if (isnonzero(err)) return
         enddo
         do i=1,sendcount
-          call h%subarray(vfrom,lshalo(:,i),ushalo(:,i),err=err)
+          call h%create_subarray_bounds(cfrom%lb,cfrom%ub,lshalo(:,i),ushalo(:,i),err=err)
           if (isnonzero(err)) return
           call d%add_send(sends(i),h,err=err)
           if (isnonzero(err)) return
@@ -1137,9 +1307,15 @@ module gabriel
         deallocate(lbs,ubs)
         deallocate(to_lb,to_ub,to_lbs,to_ubs)
         deallocate(lowers,uppers)
+        deallocate(off_from,off_to,off)
         call d%create(err=err)
 
-      end subroutine create_reshuffle_
+          class default
+            call error(204,"Target composition is not box! (This shouldn't happen)",err)
+            return
+        end select 
+
+      end subroutine create_reshuffle_box
 
 logical recursive function combo(c,d,n) result(combor)
 ! this function makes a switch in the logical array.
@@ -1239,14 +1415,14 @@ logical recursive function signs(d,n) result(signsr)
 
       end subroutine
       
-!> Update a decomposition with one array as source and destination
-!dox @relates gabriel::decomposition
-      subroutine decomposition_update_single(self,v,err)
+!> Update a distribution with one array as source and destination
+!dox @relates gabriel::distribution
+      subroutine distribution_update_single(self,v,err)
         use mpi
         use iso_c_binding, only : c_loc,c_f_pointer
  
         real, dimension(..), allocatable, target, intent(inout) :: v
-        class(decomposition), intent(in)                    :: self
+        class(distribution), intent(in)                    :: self
         integer, intent(out), optional                      :: err
 
         real,dimension(:),pointer :: psend,precv
@@ -1255,15 +1431,15 @@ logical recursive function signs(d,n) result(signsr)
 
         call self%update(v,v,err)
 
-      end subroutine decomposition_update_single
+      end subroutine distribution_update_single
 
-!> Update a decomposition with types that use absolute addressing
-!dox @relates gabriel::decomposition
-      subroutine decomposition_update_bottom(self,err)
+!> Update a distribution with types that use absolute addressing
+!dox @relates gabriel::distribution
+      subroutine distribution_update_bottom(self,err)
       use mpi
       use iso_c_binding, only : c_loc,c_f_pointer
 
-      class(decomposition), intent(in)                    :: self
+      class(distribution), intent(in)                    :: self
       integer, intent(out), optional                      :: err
 
       integer mpierr,status(MPI_STATUS_SIZE)
@@ -1271,7 +1447,7 @@ logical recursive function signs(d,n) result(signsr)
 
       if (present(err)) err=0
 
-      call debug('decomposition_update_bottom')
+      call debug('distribution_update_bottom')
       if (check) then
         do i=1,self%sends
           if (isdebug()) print*,'i=',i
@@ -1291,14 +1467,14 @@ logical recursive function signs(d,n) result(signsr)
       call MPI_Neighbor_alltoallw(MPI_BOTTOM,self%sendcnts,self%senddispls,self%sendhalos%m, &
      &  MPI_BOTTOM,self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
 
-      end subroutine decomposition_update_bottom
+      end subroutine distribution_update_bottom
 
-!> Update a decomposition with separate arrays as source and destination
-      subroutine decomposition_update_sendrecv(self,vsend,vrecv,err)
+!> Update a distribution with separate arrays as source and destination
+      subroutine distribution_update_sendrecv(self,vsend,vrecv,err)
       use mpi
       use iso_c_binding, only : c_loc,c_f_pointer
 
-      class(decomposition), intent(in)                    :: self
+      class(distribution), intent(in)                    :: self
       real, dimension(..), allocatable, target, intent(in)    :: vsend
       real, dimension(..), allocatable, target, intent(inout) :: vrecv
       integer, intent(out), optional                      :: err
@@ -1309,7 +1485,7 @@ logical recursive function signs(d,n) result(signsr)
 
       if (present(err)) err=0
 
-      call debug('update_decomposition')
+      call debug('update_distribution')
       if (check) then
         do i=1,self%sends
           if (isdebug()) print*,'i=',i
@@ -1331,26 +1507,26 @@ logical recursive function signs(d,n) result(signsr)
       call MPI_Neighbor_alltoallw(psend,self%sendcnts,self%senddispls,self%sendhalos%m, &
      &  precv,self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
                    
-      end subroutine decomposition_update_sendrecv
+      end subroutine distribution_update_sendrecv
 
-      subroutine decomposition_update_alt(self,vsend,vrecv,err)
+      subroutine distribution_update_alt(self,vsend,vrecv,err)
       use mpi
       use iso_c_binding, only : c_loc,c_f_pointer
 
-      class(decomposition), intent(in)                    :: self
+      class(distribution), intent(in)                    :: self
       real, dimension(..), allocatable, target, optional, intent(inout) :: vsend
       real, dimension(..), allocatable, target, optional, intent(inout) :: vrecv
       integer, intent(out), optional                      :: err
 
       if (present(vsend).and.present(vrecv)) then
-        call self%decomposition_update_sendrecv(vsend,vrecv,err)
+        call self%distribution_update_sendrecv(vsend,vrecv,err)
       elseif (present(vsend)) then
-        call self%decomposition_update_single(vsend,err)
+        call self%distribution_update_single(vsend,err)
       else
-        call self%decomposition_update_bottom(err)
+        call self%distribution_update_bottom(err)
       endif
 
-      end subroutine decomposition_update_alt
+      end subroutine distribution_update_alt
 
 !> finalize halo
 !dox @private

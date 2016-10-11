@@ -11,7 +11,9 @@ program ex
   integer ierr,rank,right,left,mpisize,i,j,k
   integer hor,ver
 
-  type(decomposition) :: d
+  type(box) :: c
+  type(distribution) :: d
+
   call MPI_Init(ierr)
   call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
   call MPI_Comm_size(MPI_COMM_WORLD,mpisize,ierr)
@@ -49,7 +51,8 @@ program ex
   call gabriel_init
 !  call d%halo(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
 !  call d%halo(a,(/hor*s,ver*s,1/),(/hor*s+s-1,ver*s+s+1,6/),MPI_COMM_WORLD,periodic=(/.true.,.false.,.false./))
-  call d%halo(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
+  call c%initialize(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
+  call d%halo(c)
 
 !  call d%halo(a,(/hor*s,ver*s,1/),(/hor*s+s-1,ver*s+s+1,6/),MPI_COMM_WORLD)
 print*,'Created halo. Now make it into a joined one'
@@ -61,7 +64,7 @@ print*,'Add b'
 print*,'Commit it'
   call d%create()
 
-  print*,'Update decomposition..'
+  print*,'Apply distribution..'
   call d%update()
 
   write(*,'(a,i3,a,i4,4f13.3)')' AFTER Rank',rank,' data=',ver*s,a(:,ver*s,1)

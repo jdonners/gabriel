@@ -9,7 +9,7 @@ program ex
   integer ierr,rank,right,left,mpisize,i,j,k
 
   type(halo) :: h(10,2)
-  type(decomposition) :: d
+  type(distribution) :: d
   call MPI_Init(ierr)
   call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
   call MPI_Comm_size(MPI_COMM_WORLD,mpisize,ierr)
@@ -44,13 +44,13 @@ program ex
   call h(1,2)%commit
   write(*,'(a)',advance='yes')'4'
 
-  print*,'Initialize decomposition..'
+  print*,'Initialize distribution..'
   call d%init(1,1,MPI_COMM_WORLD)
   print*,'Add send..'
   call d%add_send(right,h(1,1))
   print*,'Add recv..'
   call d%add_recv(left,h(1,2))
-  print*,'Create decomposition..'
+  print*,'Create distribution..'
   call d%create
 
 !  print*,'Update decomposition..'
@@ -61,7 +61,7 @@ program ex
 !    print*,'NOT valid'
 !  endif
 
-  print*,'Update decomposition..'
+  print*,'Apply distribution..'
   call d%update
 
   write(*,'(a,i3,a,12f13.3)')'AFTER  Rank',rank,' a=',a(:,1,1)
