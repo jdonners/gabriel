@@ -1,0 +1,8 @@
+&halo_exchange
+  array_size=5,
+  nproc_row=2,
+  halo_width=1,
+  warmloop=100,
+  timeloop=10000,
+  vars=2
+/
