@@ -128,11 +128,11 @@ module gabriel
         type(halo),allocatable,dimension(:) :: sendhalos  !< halo types to send
         type(halo),allocatable,dimension(:) :: recvhalos  !< halo types to receive
         contains
-          procedure :: init => init_distribution_              !< initialize distribution
+          procedure :: init => distribution_init              !< initialize distribution
           procedure :: is_initialized => distribution_isinitialized              !< check initialized distribution
           procedure :: add_send => add_distribution_send_      !< add a neighbor to send to
           procedure :: add_recv => add_distribution_recv_      !< add a neighbor to recv from
-          procedure :: create => create_distribution_          !< create the graph communicator of the distribution
+          procedure :: create => distribution_create           !< create the graph communicator of the distribution
 ! Unfortunately, this generic triggers an Intel compiler bug because of assumed-rank arrays, see topic 595234 in the Intel Forum
 !          generic   :: update => distribution_update_single,distribution_update_bottom,distribution_update_sendrecv           !< update the distribution
 ! This is a temporary fix to the compiler problem above. This fix resolves the right routine at runtime, not at compile-time,
@@ -157,9 +157,10 @@ module gabriel
         integer :: v
 
         call get_environment_variable("GABRIEL_VERBOSE",verbosity)
-        read(verbosity,'(i3)')v
+        read(verbosity,'(i3)',err=10) v
         call gabriel_set_verbosity(v)
-
+  10    return
+    
       end subroutine
 
       subroutine gabriel_set_checking(flag)
@@ -179,8 +180,14 @@ module gabriel
       subroutine gabriel_set_verbosity(level)
         integer :: level
 
-        if (level.ge.0 .and. level.le.4) verbose=level
-        if (level.ge.4) print*,'gabriel verbosity: ',level
+        if (level.le.0) then
+          verbose=0
+        elseif (level.ge.4) then
+          verbose=4
+        else
+          verbose=level
+        endif
+        if (isinfo()) print*,'gabriel verbosity: ',verbose
       end subroutine
 
       logical function isdebug()
@@ -619,7 +626,7 @@ module gabriel
 
 !> Initialize a distribution
 !dox @relates gabriel::distribution
-      subroutine init_distribution_(d,sends,recvs,comm,err)
+      subroutine distribution_init(d,sends,recvs,comm,err)
         class(distribution), intent(out)                  :: d
         integer, intent(in)                                :: sends,recvs,comm
         integer, intent(out), optional                     :: err
@@ -644,7 +651,7 @@ module gabriel
         allocate(d%sendweights(sends))
         allocate(d%recvweights(recvs))
 
-      end subroutine init_distribution_
+      end subroutine distribution_init
 
 !> Add a receive to a distribution
 !dox @relates gabriel::distribution
@@ -699,10 +706,10 @@ module gabriel
         d%sends=n
 
       end subroutine add_distribution_send_
-
+      
 !> Commit a distribution
 !dox @relates gabriel::distribution
-      subroutine create_distribution_(d,i,reorder,err)
+      subroutine distribution_create(d,i,reorder,err)
         use mpi
         class(distribution), intent(inout)           :: d            !< distribution type
         integer, optional, intent(in)                 :: i            !< MPI_Info, default MPI_INFO_NULL
@@ -781,7 +788,7 @@ module gabriel
           return
         endif
 
-      end subroutine create_distribution_
+      end subroutine distribution_create
 
       subroutine box_initialize(comp,v,lower,upper,comm,offset,periodic,err)
         use mpi

@@ -16,6 +16,7 @@ program ex1d
   call MPI_Init(ierr)
   call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
   call MPI_Comm_size(MPI_COMM_WORLD,mpisize,ierr)
+  call gabriel_init
   right=rank+1
   left=rank-1
   if (right.ge.mpisize)right=0
