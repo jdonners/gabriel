@@ -9,7 +9,8 @@ check_PROGRAMS = $(TESTS)
 AM_DEFAULT_SOURCE_EXT = .f90
 LDADD = -lgabriel
 
-EXTRA_DIST =  gabriel.docset
+ACLOCAL_AMFLAGS = -I m4
+EXTRA_DIST =  gabriel.docset input
 
 # Change preprocessor flag. This is specific to some Fortran compilers.
 # This hack shouldn't be used if C/C++ code is included!

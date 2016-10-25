@@ -49,13 +49,13 @@ program ex
   write(*,'(a,i3,a,i4,4f13.3,2i5)')'BEFORE Rank',rank,' data=',ver*s+3,a(:,ver*s+3,1),lbound(a,1),ubound(a,1)
 
   call gabriel_init
-!  call d%halo(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
-!  call d%halo(a,(/hor*s,ver*s,1/),(/hor*s+s-1,ver*s+s+1,6/),MPI_COMM_WORLD,periodic=(/.true.,.false.,.false./))
+!  call d%parcel(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
+!  call d%parcel(a,(/hor*s,ver*s,1/),(/hor*s+s-1,ver*s+s+1,6/),MPI_COMM_WORLD,periodic=(/.true.,.false.,.false./))
   call c%init(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
-  call d%halo(c)
+  call d%parcel(c)
 
-!  call d%halo(a,(/hor*s,ver*s,1/),(/hor*s+s-1,ver*s+s+1,6/),MPI_COMM_WORLD)
-print*,'Created halo. Now make it into a joined one'
+!  call d%parcel(a,(/hor*s,ver*s,1/),(/hor*s+s-1,ver*s+s+1,6/),MPI_COMM_WORLD)
+print*,'Created parcel. Now make it into a joined one'
   call d%joined(2)
 print*,'Add a'
   call d%joined_add(a)

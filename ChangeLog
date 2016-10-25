@@ -1,0 +1,16 @@
+Version 1.3: Ready for more (25 Oct 2016)
+
+ * Derived type decomposition now replaced with types composition and distribution.
+ * Renamed derived type halo to parcel.
+
+Version 1.2: Reduce the overhead! (10 Dec 2015)
+
+ * Added functions to disable and enable checking of array bounds (default is enabled): gabriel_disable_checking, gabriel_enable_checking, gabriel_set_checking
+
+Version 1.1: Bugfix release (27 Oct 2015)
+
+ * Bug fixed when no periodicity is required.
+
+Version 1.0: Initial release (23 Oct 2015)
+
+ * This library provides convenience functions for Fortran codes using MPI to do computations on regular grids. It simplifies the implementation of halo exchanges and transformations to only two routines: one to setup and one to transfer data.

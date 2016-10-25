@@ -12,7 +12,7 @@ program ex1d
   real,dimension(:,:),allocatable :: c
   integer ierr,rank,right,left,mpisize,i,j,k
 
-  type(halo) :: h(10,2)
+  type(parcel) :: h(10,2)
 
   call MPI_Init(ierr)
   call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
@@ -28,7 +28,7 @@ program ex1d
 
   write(*,'(a,i3,a,12f13.3)')'BEFORE Rank',rank,' data=',a(:)
 
-  print*,'Define subarray halos..'
+  print*,'Define subarray parcels..'
   call h(1,1)%subarray(a,(/n,n/),(/n,n/),err=ierr)
   print*,'Errorcode: ',ierr
   if (ierr.ne.6) correct=.false.

@@ -8,7 +8,7 @@ program ex
   real,dimension(:,:,:),allocatable :: a,a2,b
   integer ierr,rank,right,left,mpisize,i,j,k
 
-  type(halo) :: h(10,2)
+  type(parcel) :: h(10,2)
   type(distribution) :: d
   call MPI_Init(ierr)
   call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
@@ -27,10 +27,10 @@ program ex
   write(*,'(a,i3,a,12f13.3)')'BEFORE Rank',rank,' data=',a(:,1,1)
 
   call gabriel_init
-  print*,'Define subarray halos..'
+  print*,'Define subarray parcels..'
   call h(1,1)%subarray(a,(/n,1,1/),(/n,5,6/))
   call h(1,2)%subarray(a,(/0,1,1/),(/0,5,6/))
-  write(*,'(a)',advance='no')'Define joined halos..'
+  write(*,'(a)',advance='no')'Define joined parcels..'
   call h(1,1)%joined(2)
   call h(1,2)%joined(2)
   write(*,'(a)',advance='no')'1'
@@ -55,7 +55,7 @@ program ex
 
 !  print*,'Update decomposition..'
 !  print*,'Result should be valid'
-!  if (h(1	,1)%is_valid_halo(a)) then
+!  if (h(1	,1)%is_valid_parcel(a)) then
 !    print*,' Valid'
 !  else
 !    print*,'NOT valid'

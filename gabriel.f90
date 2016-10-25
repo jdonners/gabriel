@@ -32,30 +32,30 @@ module gabriel
 
       integer :: realtype = MPI_DATATYPE_NULL
 
-!> Class to define halos
-      type, public :: halo
+!> Class to define parcels
+      type, public :: parcel
         integer, private :: m=MPI_DATATYPE_NULL                   !< MPI type
         logical, private :: initialized = .false.              !< is m a valid MPI type?
         logical, private :: absolute = .false.        !< is m an absolute MPI type (i.e. should it be used with MPI_BOTTOM)?
-        class(halo), pointer, private :: i            !< pointer to extended halo type for verification (boundary checking)
+        class(parcel), pointer, private :: i            !< pointer to extended parcel type for verification (boundary checking)
         contains
           procedure, public :: mpitype                        !< Return a duplicate of the MPI type
-          generic :: assignment(=) => copy_halo       !< Define assignment of a halo
-          procedure, private :: copy_halo                      !< Copy a halo
-          procedure :: combined => create_combined                !< Combine different halos of the same variable
-          procedure :: joined => halo_joined_init                  !< Join the same halo of different variables
-          procedure :: add_joined => halo_joined_add
-          procedure :: commit => halo_commit                      !< commit halo datatype and create joined datatype
+          generic :: assignment(=) => copy_parcel       !< Define assignment of a parcel
+          procedure, private :: copy_parcel                      !< Copy a parcel
+          procedure :: combined => create_combined                !< Combine different parcels of the same variable
+          procedure :: joined => parcel_joined_init                  !< Join the same parcel of different variables
+          procedure :: add_joined => parcel_joined_add
+          procedure :: commit => parcel_commit                      !< commit parcel datatype and create joined datatype
           procedure :: subarray => create_subarray                !< Create a subarray type
           procedure, private :: create_subarray_bounds                !< Create a subarray type with bounds of array
-          procedure :: is_valid_halo => check_halo                 !< Verify a combination of halo and variable
-          procedure :: is_absolute => halo_is_absolute       !< Is a halo absolute?
-          procedure :: print => print_halo            !< print halo
-          final :: finalize_halo                      !< Finalize a halo
-      end type halo
+          procedure :: is_valid_parcel => check_parcel                 !< Verify a combination of parcel and variable
+          procedure :: is_absolute => parcel_is_absolute       !< Is a parcel absolute?
+          procedure :: print => print_parcel            !< print parcel
+          final :: finalize_parcel                      !< Finalize a parcel
+      end type parcel
 
 !> Type to describe subarrays
-      type, extends(halo) :: subarray
+      type, extends(parcel) :: subarray
         integer                 :: ndim               !< dimension of array
         integer                 :: oldtype            !< MPI type of elements of array
         integer,dimension(:),allocatable :: lb                 !< lower bounds for array
@@ -64,7 +64,7 @@ module gabriel
         integer,dimension(:),allocatable :: subsizes           !< sizes of subarray
         integer,dimension(:),allocatable :: starts             !< starting indexes of subarray
         contains
-          procedure :: is_valid_halo => check_subarray         !< Verify a subarray
+          procedure :: is_valid_parcel => check_subarray         !< Verify a subarray
           procedure :: print => print_subarray                 !< print a subarray
       end type
 
@@ -91,16 +91,16 @@ module gabriel
           procedure :: init => box_initialize !< Initialize a box composition
       end type
 
-!> Type to combine multiple halos of the same variable
-      type, extends(halo) :: combined
-        integer :: n                                           !< number of halos
-        type(halo),dimension(:),allocatable :: halos           !< array of halos
+!> Type to combine multiple parcels of the same variable
+      type, extends(parcel) :: combined
+        integer :: n                                           !< number of parcels
+        type(parcel),dimension(:),allocatable :: parcels           !< array of parcels
         contains
-          procedure :: is_valid_halo => check_combined         !< verify a combined halo
+          procedure :: is_valid_parcel => check_combined         !< verify a combined parcel
       end type
 
-!> Type to join the same halo of multiple variables
-      type, extends(halo) :: joined
+!> Type to join the same parcel of multiple variables
+      type, extends(parcel) :: joined
         integer     :: length                                  !< max number of variables
         integer     :: n = 0                                   !< actual number of variables
         integer(MPI_ADDRESS_KIND),dimension(:),allocatable :: variables !< multiple variables
@@ -125,8 +125,8 @@ module gabriel
         integer,allocatable,dimension(:) :: recvweights !< weight of recvs
         integer(MPI_ADDRESS_KIND),allocatable,dimension(:) :: senddispls !< displacement of send types
         integer(MPI_ADDRESS_KIND),allocatable,dimension(:) :: recvdispls !< displacement of receive types
-        type(halo),allocatable,dimension(:) :: sendhalos  !< halo types to send
-        type(halo),allocatable,dimension(:) :: recvhalos  !< halo types to receive
+        type(parcel),allocatable,dimension(:) :: sendparcels  !< parcel types to send
+        type(parcel),allocatable,dimension(:) :: recvparcels  !< parcel types to receive
         contains
           procedure :: init => distribution_init              !< initialize distribution
           procedure :: is_initialized => distribution_isinitialized              !< check initialized distribution
@@ -142,7 +142,7 @@ module gabriel
           procedure :: update => distribution_update_alt           !< update the distribution
           procedure :: autocreate => distribution_autocreate   !< create autodistribution
           procedure :: transform => create_reshuffle_           !< create transformation
-          procedure :: halo => distribution_halo               !< setup halos, but don't create
+          procedure :: parcel => distribution_parcel               !< setup parcels, but don't create
           procedure :: joined => distribution_joined           !< setup joined distribution
           procedure :: joined_add => distribution_joined_add   !< add variable to joined distribution
           procedure, public :: distribution_update_single           !< update the distribution
@@ -253,11 +253,11 @@ module gabriel
       end function
 
       subroutine create_subarray_bounds(self,lb,ub,starts,stops,subsizes,err)
-!! Create type to combine different halos.
+!! Create type to combine different parcels.
 !! This is used to communicate a subarray of a larger array and it takes upper- and lower bounds of the array
         use mpi
 
-        class(halo)                                             :: self           !< halo
+        class(parcel)                                             :: self           !< parcel
         integer, intent(in), dimension(:)                       :: lb         !< lower bounds of subarray
         integer, intent(in), dimension(:)                       :: ub         !< upper bounds of subarray
         integer, intent(in), dimension(:)                       :: starts         !< starting indices of subarray
@@ -282,7 +282,7 @@ module gabriel
 
         ndim=size(lb)
 
-! allocate subarray halo type
+! allocate subarray parcel type
         allocate(subarray :: self%i)
 
         select type(sub => self%i)
@@ -342,7 +342,7 @@ module gabriel
           endif
           call MPI_Type_create_subarray(ndim,sub%sizes,sub%subsizes,sub%starts,    &
      &       MPI_ORDER_FORTRAN,realtype,self%m,mpierr)
-! note that the mpitype is stored in the halo type that points to the subarray type, NOT in the subarray type.
+! note that the mpitype is stored in the parcel type that points to the subarray type, NOT in the subarray type.
         end select ! sub => h%i
         call MPI_Type_commit(self%m,mpierr)
         self%initialized=.true.
@@ -350,11 +350,11 @@ module gabriel
        end subroutine create_subarray_bounds
        
       subroutine create_subarray(self,array,starts,stops,subsizes,err)
-!! Create type to combine different halos.
+!! Create type to combine different parcels.
 !! This is used to communicate a subarray of a larger array
         use mpi
 
-        class(halo)                                             :: self           !< halo
+        class(parcel)                                             :: self           !< parcel
         real, intent(in), dimension(..), allocatable            :: array          !< input array
         integer, intent(in), dimension(:)                       :: starts         !< starting indices of subarray
         integer, intent(in), dimension(:), optional             :: stops          !< stopping indices of subarray
@@ -371,14 +371,14 @@ module gabriel
         
       end subroutine create_subarray
 
-!> Create type to combine different halos.
+!> Create type to combine different parcels.
 !> This is usually used to communicate different parts of the same variable
-!dox @relates gabriel::halo
-      subroutine create_combined(self,halos,err)
+!dox @relates gabriel::parcel
+      subroutine create_combined(self,parcels,err)
         use mpi
 
-        class(halo),intent(inout)            :: self
-        type(halo),dimension(:),intent(in)   :: halos
+        class(parcel),intent(inout)            :: self
+        type(parcel),dimension(:),intent(in)   :: parcels
         integer,intent(out),optional         :: err
 
         integer                  :: i,sz,mpierr
@@ -388,72 +388,72 @@ module gabriel
 
         if (present(err)) err=0
 
-        sz=size(halos)
+        sz=size(parcels)
 ! check arguments
         if (sz.le.1) then
-          call error(9,"combined halo needs at least 2 halos as input.",err)
+          call error(9,"combined parcel needs at least 2 parcels as input.",err)
           return
         endif
 
 ! check for types with absolute addresses
         nabs=0
         do i=1,sz
-          if (halos(i)%is_absolute()) nabs=nabs+1
+          if (parcels(i)%is_absolute()) nabs=nabs+1
         enddo
         if (nabs.gt.0 .and. nabs.ne.sz) then
-          call error(37,"combined halo can not combine types with relative and absolute addresses.",err)
+          call error(37,"combined parcel can not combine types with relative and absolute addresses.",err)
           return
         endif
 
-! allocate subarray halo type
+! allocate subarray parcel type
         allocate(combined :: self%i)
         if (nabs.eq.sz) self%absolute=.true.
         select type (c=> self%i)
         type is (combined)
           c%n=sz
-          allocate(c%halos(sz))
+          allocate(c%parcels(sz))
           allocate(hh(sz),ones(sz),zeroes(sz))
           do i=1,sz
-            hh(i)=halos(i)%m
+            hh(i)=parcels(i)%m
           enddo
           ones=1
           zeroes=0_MPI_ADDRESS_KIND
-          c%halos=halos
+          c%parcels=parcels
         end select
 
 ! create type
           call MPI_Type_create_struct(sz,ones,zeroes,hh,self%m,mpierr)
-! note that the mpitype is stored in the halo type that points to the subarray type, NOT in the subarray type.
+! note that the mpitype is stored in the parcel type that points to the subarray type, NOT in the subarray type.
         call MPI_Type_commit(self%m,mpierr)
         self%initialized=.true.
         deallocate(hh)
       end subroutine create_combined
 
-!> Create type to join the same halo of multiple variables.
+!> Create type to join the same parcel of multiple variables.
 !> This is usually used to communicate the same part of different variables.
-!dox @param self halo object
-!dox @param n number of variables to communicate the halos
-!dox @relates gabriel::halo
-      subroutine halo_joined_init(self,n,err)
-! The resulting halo is based on absolute addresses, so it will be communicated
+!dox @param self parcel object
+!dox @param n number of variables to communicate the parcels
+!dox @relates gabriel::parcel
+      subroutine parcel_joined_init(self,n,err)
+! The resulting parcel is based on absolute addresses, so it will be communicated
 ! with MPI_BOTTOM as both sending and receiving buffers.
         use mpi
 
-        class(halo),intent(inout) :: self
+        class(parcel),intent(inout) :: self
         integer,intent(in)        :: n
         integer,intent(out),optional :: err
 
-        class(halo),allocatable   :: h
+        class(parcel),allocatable   :: h
         integer                   :: i,mpierr
 
         if (present(err)) err=0
 ! check arguments
         if (n.lt.2) then
-          call error(10,'Error: Joined halo needs at least room for 2 halo variables as input.',err)
+          call error(10,'Error: Joined parcel needs at least room for 2 parcel variables as input.',err)
           return
         endif
 
-! allocate joined halo type
+! allocate joined parcel type
         allocate(joined :: h)
         select type (h)
         type is (joined)
@@ -463,7 +463,7 @@ module gabriel
         end select
 ! create type
 !          call MPI_Type_create_struct(sz,ones,zeroes,hh,h%m)
-! note that the mpitype is stored in the halo type that points to the subarray type, NOT in the subarray type.
+! note that the mpitype is stored in the parcel type that points to the subarray type, NOT in the subarray type.
 !        call MPI_Type_commit(h%m,mpierr)
 
         allocate(self%i,source=h)
@@ -471,17 +471,17 @@ module gabriel
         if (isdebug()) then
         select type (h)
         type is (joined)
-          print*,'original halo is joined'
+          print*,'original parcel is joined'
         end select
         select type (j=>self%i)
         type is (joined)
-          print*,'copied halo is joined'
+          print*,'copied parcel is joined'
         class default
-          print*,'copied halo is not joined'
+          print*,'copied parcel is not joined'
         end select
         endif
 
-      end subroutine halo_joined_init
+      end subroutine parcel_joined_init
 
       logical function distribution_isinitialized(d)
         class(distribution),intent(in) :: d
@@ -508,7 +508,7 @@ module gabriel
 !> create a joined distribution
 !dox @ relates gabriel::distribution
       subroutine distribution_joined(self,n,err)
-! The resulting halo is based on absolute addresses, so it will be communicated
+! The resulting parcel is based on absolute addresses, so it will be communicated
 ! with MPI_BOTTOM as both sending and receiving buffers.
         use mpi
 
@@ -516,27 +516,27 @@ module gabriel
         integer,intent(in)        :: n
         integer,intent(out),optional :: err
 
-        type(halo)                :: h
+        type(parcel)                :: h
         integer                   :: i,mpierr
 
         if (present(err)) err=0
 ! check arguments
         if (n.lt.2) then
-          call error(10,'Error: Joined halo needs at least room for 2 halo variables as input.',err)
+          call error(10,'Error: Joined parcel needs at least room for 2 parcel variables as input.',err)
           return
         endif
 
         do i=1,self%sends
-          call self%sendhalos(i)%joined(n,err)
+          call self%sendparcels(i)%joined(n,err)
         enddo
         do i=1,self%recvs
-! allocate subarray halo type
-          call self%recvhalos(i)%joined(n,err)
+! allocate subarray parcel type
+          call self%recvparcels(i)%joined(n,err)
         enddo
 
       end subroutine distribution_joined
 
-!> add a variable to a joined halo type
+!> add a variable to a joined parcel type
 !dox @relates gabriel::subarray
       subroutine distribution_joined_add(self,v,err)
         use mpi
@@ -550,22 +550,22 @@ module gabriel
         if (present(err)) err=0
   
         do i=1,self%sends
-          call self%sendhalos(i)%add_joined(v,err)
+          call self%sendparcels(i)%add_joined(v,err)
         enddo
         do i=1,self%recvs
-          call self%recvhalos(i)%add_joined(v,err)
+          call self%recvparcels(i)%add_joined(v,err)
         enddo
 
       end subroutine distribution_joined_add
 
-!> print a halo
-!dox @relates gabriel::halo
-      subroutine print_halo(self,err)
-        class(halo),intent(in) :: self
+!> print a parcel
+!dox @relates gabriel::parcel
+      subroutine print_parcel(self,err)
+        class(parcel),intent(in) :: self
         integer,intent(out),optional :: err
 
         if (present(err)) err=0
-        call debug('print_halo')
+        call debug('print_parcel')
         select type(h=>self%i)
         type is (subarray)
           call h%print(err=err)
@@ -573,7 +573,7 @@ module gabriel
           if (h%initialized) print*,'is initialized. mpitype=',h%m
         end select
 
-      end subroutine print_halo
+      end subroutine print_parcel
 
 !> print a subarray
 !dox @relates gabriel::subarray
@@ -590,12 +590,12 @@ module gabriel
       end subroutine print_subarray
 
 
-!> Add a variable to a joined halo type
+!> Add a variable to a joined parcel type
 !dox @relates gabriel::subarray
-      subroutine halo_joined_add(self,v,err)
+      subroutine parcel_joined_add(self,v,err)
         use mpi
 
-        class(halo), intent(inout) :: self
+        class(parcel), intent(inout) :: self
         real, dimension(:,:,:), allocatable, intent(in)    :: v
         integer, intent(out), optional :: err
                                                                         
@@ -604,7 +604,7 @@ module gabriel
       if (present(err)) err=0
       select type(j=>self%i)
       type is (joined)
-        if (.not.j%i%is_valid_halo(v)) then
+        if (.not.j%i%is_valid_parcel(v)) then
           call error(11,"Halo is not valid for variable",err)
           return
         endif        
@@ -612,17 +612,17 @@ module gabriel
         j%n=j%n+1
         if (isdebug()) print*,'n,length=',j%n,j%length
         if (j%n.gt.j%length) then 
-          call error(12,"Too many halos for joined halo type",err)
+          call error(12,"Too many parcels for joined parcel type",err)
           return
         endif 
         if (isdebug()) print*,'ln=',size(j%variables),lbound(j%variables)
         call MPI_Get_address(v,j%variables(j%n),mpierr) 
       class default
-          call error(13,"This is not a joined halo type",err)
+          call error(13,"This is not a joined parcel type",err)
           return
       end select
                                                                         
-      end subroutine halo_joined_add
+      end subroutine parcel_joined_add
 
 !> Initialize a distribution
 !dox @relates gabriel::distribution
@@ -642,8 +642,8 @@ module gabriel
         d%recvs=0
         allocate(d%sendranks(sends))
         allocate(d%recvranks(recvs))
-        allocate(d%sendhalos(sends))
-        allocate(d%recvhalos(recvs))
+        allocate(d%sendparcels(sends))
+        allocate(d%recvparcels(recvs))
         allocate(d%sendcnts(sends))
         allocate(d%recvcnts(recvs))
         allocate(d%senddispls(sends))
@@ -658,7 +658,7 @@ module gabriel
       subroutine distribution_add_recv(d,rank,h,err)
         use mpi
         class(distribution), intent(inout)                 :: d
-        type(halo), intent(in)                             :: h
+        type(parcel), intent(in)                             :: h
         integer, intent(in)                                :: rank
         integer, intent(out), optional                     :: err
 
@@ -672,7 +672,7 @@ module gabriel
         endif
         
         d%recvranks(n)=rank
-        d%recvhalos(n)=h
+        d%recvparcels(n)=h
         d%recvdispls(n)=0
         d%recvcnts(n)=1
         d%recvweights(n)=1
@@ -685,7 +685,7 @@ module gabriel
       subroutine distribution_add_send(d,rank,h,err)
         use mpi
         class(distribution), intent(inout)                 :: d
-        type(halo), intent(in)                             :: h
+        type(parcel), intent(in)                             :: h
         integer, intent(in)                                :: rank
         integer, intent(out), optional                     :: err
 
@@ -699,7 +699,7 @@ module gabriel
         endif
 
         d%sendranks(n)=rank
-        d%sendhalos(n)=h
+        d%sendparcels(n)=h
         d%senddispls(n)=0
         d%sendcnts(n)=1
         d%sendweights(n)=1
@@ -721,7 +721,7 @@ module gabriel
         logical mpi_reorder
         integer cnt,n
 
-        type(halo) h
+        type(parcel) h
 
         if (present(err)) err=0
         if (present(i)) then
@@ -739,43 +739,43 @@ module gabriel
         call MPI_Comm_size(d%comm_parent,commsize,ierr)
 
         do n=1,d%recvs
-          call d%recvhalos(n)%commit()
+          call d%recvparcels(n)%commit()
         enddo
         do n=1,d%sends
-          call d%sendhalos(n)%commit()
+          call d%sendparcels(n)%commit()
         enddo
         do n=0,commsize-1
           if (count(d%recvranks(1:d%recvs).eq.n).gt.1) then
             if(isdebug())print*,'n,d%recvs,count(d%recvranks.eq.n)=',n,d%recvs,count(d%recvranks(1:d%recvs).eq.n)
-!combine receive halos from the same rank into one combined type
-            call h%combined(pack(d%recvhalos(1:d%recvs),d%recvranks(1:d%recvs).eq.n),err=err)
+!combine receive parcels from the same rank into one combined type
+            call h%combined(pack(d%recvparcels(1:d%recvs),d%recvranks(1:d%recvs).eq.n),err=err)
             if (isnonzero(err))return
-!remove those receive halos from distribution
+!remove those receive parcels from distribution
             cnt=count(d%recvranks(1:d%recvs).ne.n)
-            d%recvhalos(1:cnt)=pack(d%recvhalos(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
+            d%recvparcels(1:cnt)=pack(d%recvparcels(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
             d%recvdispls(1:cnt)=pack(d%recvdispls(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
             d%recvcnts(1:cnt)=pack(d%recvcnts(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
             d%recvweights(1:cnt)=pack(d%recvweights(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
             d%recvranks(1:cnt)=pack(d%recvranks(1:d%recvs),d%recvranks(1:d%recvs).ne.n)
             d%recvs=cnt
-!add combined halo to the distribution
+!add combined parcel to the distribution
             call d%add_recv(n,h,err=err)
             if (isnonzero(err))return
           endif
           if (count(d%sendranks(1:d%sends).eq.n).gt.1) then
             if(isdebug())print*,'n,d%sends,count(d%sendranks.eq.n)=',n,d%sends,count(d%sendranks.eq.n)
-!combine send halos to the same rank into one combined type
-            call h%combined(pack(d%sendhalos(1:d%sends),d%sendranks(1:d%sends).eq.n),err=err)
+!combine send parcels to the same rank into one combined type
+            call h%combined(pack(d%sendparcels(1:d%sends),d%sendranks(1:d%sends).eq.n),err=err)
             if (isnonzero(err))return
-!remove those send halos from distribution
+!remove those send parcels from distribution
             cnt=count(d%sendranks(1:d%sends).ne.n)
-            d%sendhalos(1:cnt)=pack(d%sendhalos(1:d%sends),d%sendranks(1:d%sends).ne.n)
+            d%sendparcels(1:cnt)=pack(d%sendparcels(1:d%sends),d%sendranks(1:d%sends).ne.n)
             d%senddispls(1:cnt)=pack(d%senddispls(1:d%sends),d%sendranks(1:d%sends).ne.n)
             d%sendcnts(1:cnt)=pack(d%sendcnts(1:d%sends),d%sendranks(1:d%sends).ne.n)
             d%sendweights(1:cnt)=pack(d%sendweights(1:d%sends),d%sendranks(1:d%sends).ne.n)
             d%sendranks(1:cnt)=pack(d%sendranks(1:d%sends),d%sendranks(1:d%sends).ne.n)
             d%sends=cnt
-!add combined halo to the distribution
+!add combined parcel to the distribution
             call d%add_send(n,h,err=err)
             if (isnonzero(err))return
           endif
@@ -806,15 +806,15 @@ module gabriel
         integer,dimension(:),allocatable :: lb,ub,off
         integer,dimension(:),allocatable :: shf
         integer,dimension(:),allocatable :: low,up
-        integer,dimension(:,:),allocatable :: lshalo,ushalo
-        integer,dimension(:,:),allocatable :: lrhalo,urhalo
+        integer,dimension(:,:),allocatable :: lsparcel,usparcel
+        integer,dimension(:,:),allocatable :: lrparcel,urparcel
         integer,dimension(:,:),allocatable :: lowers,uppers
         integer,dimension(:,:),allocatable :: lbs,ubs
         integer,dimension(:),allocatable :: global_low,global_up
         logical,dimension(:),allocatable :: per
         integer :: commsize,mpierr,commrank
         integer :: i
-        type(halo) :: h
+        type(parcel) :: h
 
         if (present(err)) err=0
 
@@ -899,10 +899,10 @@ subroutine composition_finalize(comp)
 
 end subroutine composition_finalize
 
-!> Automatically create a distribution with all halos.
+!> Automatically create a distribution with all parcels.
 !> This is a collective MPI call.
 !dox @relates gabriel::distribution
-      subroutine distribution_halo(dist,comp,err)
+      subroutine distribution_parcel(dist,comp,err)
         use mpi
         class(distribution), intent(inout)          :: dist    !< Resulting distribution
         class(composition), intent(in)            :: comp    !< Input composition
@@ -910,17 +910,17 @@ end subroutine composition_finalize
 
         select type(comp)
         type is (box)
-          call distribution_halo_box(dist,comp,err)
+          call distribution_parcel_box(dist,comp,err)
         class default
           call error(200,"composition unknown!",err)
         end select
         
       end
 
-!> Automatically create a distribution with all halos.
+!> Automatically create a distribution with all parcels.
 !> This is a collective MPI call.
 !dox @relates gabriel::distribution
-      subroutine distribution_halo_box(dist,comp,err)
+      subroutine distribution_parcel_box(dist,comp,err)
         use mpi
         class(distribution), intent(inout)          :: dist    !< Resulting distribution
         class(box), intent(in)                      :: comp    !< Input composition
@@ -937,15 +937,15 @@ end subroutine composition_finalize
         integer,dimension(:),allocatable :: lb,ub,off
         integer,dimension(:),allocatable :: shf
         integer,dimension(:),allocatable :: low,up
-        integer,dimension(:,:),allocatable :: lshalo,ushalo
-        integer,dimension(:,:),allocatable :: lrhalo,urhalo
+        integer,dimension(:,:),allocatable :: lsparcel,usparcel
+        integer,dimension(:,:),allocatable :: lrparcel,urparcel
         integer,dimension(:,:),allocatable :: lowers,uppers
         integer,dimension(:,:),allocatable :: lbs,ubs
         integer,dimension(:),allocatable :: global_low,global_up
         logical,dimension(:),allocatable :: per
         integer :: comm,commsize,mpierr,commrank
         integer :: i
-        type(halo) :: h
+        type(parcel) :: h
 
         if (dist%is_initialized()) then
           call error(200,"distribution already initialized!",err)
@@ -976,7 +976,7 @@ end subroutine composition_finalize
 
         call MPIcheck(err)
 
-! TODO: check if the active domain equals the variable bounds, i.e. no halo regions
+! TODO: check if the active domain equals the variable bounds, i.e. no parcel regions
 
         comm=comp%comm
         call MPI_Comm_Size(comm,commsize,mpierr)
@@ -991,8 +991,8 @@ end subroutine composition_finalize
         call MPI_Allgather(lb,r,MPI_INTEGER,lbs,r,MPI_INTEGER,comm,mpierr)
         call MPI_Allgather(ub,r,MPI_INTEGER,ubs,r,MPI_INTEGER,comm,mpierr)
 
-        allocate(lshalo(r,MAX_HALOS),ushalo(r,MAX_HALOS))
-        allocate(lrhalo(r,MAX_HALOS),urhalo(r,MAX_HALOS))
+        allocate(lsparcel(r,MAX_HALOS),usparcel(r,MAX_HALOS))
+        allocate(lrparcel(r,MAX_HALOS),urparcel(r,MAX_HALOS))
         do i=1,commsize
         if (i-1.ne.commrank) then
 ! check for overlap of active domains, if so, error!
@@ -1017,8 +1017,8 @@ end subroutine composition_finalize
               return
             endif
             sends(sendcount)=i-1
-            lshalo(:,sendcount)=max(lbs(:,i),low)-off
-            ushalo(:,sendcount)=min(ubs(:,i),up)-off
+            lsparcel(:,sendcount)=max(lbs(:,i),low)-off
+            usparcel(:,sendcount)=min(ubs(:,i),up)-off
           endif
 ! check for overlap of my full domain with other active domains
           if(isinfo())write(*,'(a,5i4)')'Overlap of my full domain: rank,ub (.ge.) lowers,lb (.le.) uppers=', &
@@ -1034,8 +1034,8 @@ end subroutine composition_finalize
               return
             endif
             recvs(recvcount)=i-1
-            lrhalo(:,recvcount)=max(lb,lowers(:,i))-off
-            urhalo(:,recvcount)=min(ub,uppers(:,i))-off
+            lrparcel(:,recvcount)=max(lb,lowers(:,i))-off
+            urparcel(:,recvcount)=min(ub,uppers(:,i))-off
           endif
         endif
         enddo
@@ -1070,9 +1070,9 @@ end subroutine composition_finalize
                 return
               endif
               sends(sendcount)=i-1
-              lshalo(:,sendcount)=max(lbs(:,i)+shf,low)-off
-              ushalo(:,sendcount)=min(ubs(:,i)+shf,up)-off
-              if(isdebug())write(*,'(a,8i7)')'per1,lshalo,ushalo=',i-1,commrank,lshalo(:,sendcount),ushalo(:,sendcount)
+              lsparcel(:,sendcount)=max(lbs(:,i)+shf,low)-off
+              usparcel(:,sendcount)=min(ubs(:,i)+shf,up)-off
+              if(isdebug())write(*,'(a,8i7)')'per1,lsparcel,usparcel=',i-1,commrank,lsparcel(:,sendcount),usparcel(:,sendcount)
             endif
 ! check for overlap of my full domain with other active domains
             if (all(ub.ge.lowers(:,i)-shf).and.all(lb.le.uppers(:,i)-shf)) then
@@ -1083,9 +1083,9 @@ end subroutine composition_finalize
                 return
               endif
               recvs(recvcount)=i-1
-              lrhalo(:,recvcount)=max(lb,lowers(:,i)-shf)-off
-              urhalo(:,recvcount)=min(ub,uppers(:,i)-shf)-off
-              if(isdebug())write(*,'(a,8i7)')'per4,lrhalo,urhalo=',i-1,commrank,lrhalo(:,recvcount),urhalo(:,recvcount)
+              lrparcel(:,recvcount)=max(lb,lowers(:,i)-shf)-off
+              urparcel(:,recvcount)=min(ub,uppers(:,i)-shf)-off
+              if(isdebug())write(*,'(a,8i7)')'per4,lrparcel,urparcel=',i-1,commrank,lrparcel(:,recvcount),urparcel(:,recvcount)
             endif
           enddo
           if (.not.signs(shf)) exit
@@ -1099,30 +1099,30 @@ end subroutine composition_finalize
         call dist%init(sendcount,recvcount,comm,err=err)
         if (isnonzero(err)) return
         do i=1,recvcount
-          call h%create_subarray_bounds(comp%lb,comp%ub,lrhalo(:,i),urhalo(:,i),err=err)
+          call h%create_subarray_bounds(comp%lb,comp%ub,lrparcel(:,i),urparcel(:,i),err=err)
           if (isnonzero(err)) return
           call dist%add_recv(recvs(i),h,err=err)
           if (isnonzero(err)) return
         enddo
         do i=1,sendcount
-          call h%create_subarray_bounds(comp%lb,comp%ub,lshalo(:,i),ushalo(:,i),err=err)
+          call h%create_subarray_bounds(comp%lb,comp%ub,lsparcel(:,i),usparcel(:,i),err=err)
           if (isnonzero(err)) return
           call dist%add_send(sends(i),h,err=err)
           if (isnonzero(err)) return
         enddo
 
-        deallocate(lshalo,ushalo,lrhalo,urhalo)
+        deallocate(lsparcel,usparcel,lrparcel,urparcel)
         deallocate(lb,ub,off)
         deallocate(low,up)
         deallocate(lbs,ubs)
         deallocate(lowers,uppers)
 
-      end subroutine distribution_halo_box
+      end subroutine distribution_parcel_box
 
       subroutine distribution_autocreate(d,v,lower,upper,comm,offset,periodic,err)
         use mpi
         class(distribution), intent(inout)            :: d    !< Resulting distribution
-        real, dimension(..), allocatable, intent(in)   :: v    !< variable to create halos for
+        real, dimension(..), allocatable, intent(in)   :: v    !< variable to create parcels for
         integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
         integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
         integer, intent(in)               :: comm              !< communicator
@@ -1135,11 +1135,11 @@ end subroutine composition_finalize
         type(box) :: b
         
         call b%init(v,lower,upper,comm,offset,periodic,err)
-        call d%halo(b,err)
+        call d%parcel(b,err)
         call d%create(err=err)
       end subroutine distribution_autocreate
    
-!> Automatically create a transformation with all halos.
+!> Automatically create a transformation with all parcels.
 !> This is a collective MPI call.
 !dox @relates gabriel::distribution
       subroutine create_reshuffle_(d,cfrom,cto,err)
@@ -1185,8 +1185,8 @@ end subroutine composition_finalize
         integer,dimension(:),allocatable :: lb,ub,off_from,off_to,off
         integer,dimension(:),allocatable :: to_lb,to_ub
         integer,dimension(:),allocatable :: low,up
-        integer,dimension(:,:),allocatable :: lshalo,ushalo
-        integer,dimension(:,:),allocatable :: lrhalo,urhalo
+        integer,dimension(:,:),allocatable :: lsparcel,usparcel
+        integer,dimension(:,:),allocatable :: lrparcel,urparcel
         integer,dimension(:,:),allocatable :: lowers,uppers
         integer,dimension(:,:),allocatable :: lbs,ubs
         integer,dimension(:,:),allocatable :: to_lbs,to_ubs
@@ -1194,7 +1194,7 @@ end subroutine composition_finalize
         logical,dimension(:),allocatable :: per
         integer :: comm,commsize,mpierr,commrank
         integer :: i
-        type(halo) :: h
+        type(parcel) :: h
 
         if (present(err)) err=0
         sendcount=0
@@ -1254,8 +1254,8 @@ end subroutine composition_finalize
         call MPI_Allgather(to_lb,r,MPI_INTEGER,to_lbs,r,MPI_INTEGER,comm,mpierr)
         call MPI_Allgather(to_ub,r,MPI_INTEGER,to_ubs,r,MPI_INTEGER,comm,mpierr)
 
-        allocate(lshalo(r,MAX_HALOS),ushalo(r,MAX_HALOS))
-        allocate(lrhalo(r,MAX_HALOS),urhalo(r,MAX_HALOS))
+        allocate(lsparcel(r,MAX_HALOS),usparcel(r,MAX_HALOS))
+        allocate(lrparcel(r,MAX_HALOS),urparcel(r,MAX_HALOS))
         if(isdebug())print*,'commsize=',commsize
         do i=1,commsize
 ! check for overlap of active from-domains with other from-domains, if so, error!
@@ -1276,8 +1276,8 @@ end subroutine composition_finalize
               return
             endif
             sends(sendcount)=i-1
-            lshalo(:,sendcount)=max(to_lbs(:,i),low)-off
-            ushalo(:,sendcount)=min(to_ubs(:,i),up)-off
+            lsparcel(:,sendcount)=max(to_lbs(:,i),low)-off
+            usparcel(:,sendcount)=min(to_ubs(:,i),up)-off
           endif
 ! check for overlap of my full to-domain with active from-domains
           if (all(to_ub.ge.lowers(:,i)).and.all(to_lb.le.uppers(:,i))) then
@@ -1288,27 +1288,27 @@ end subroutine composition_finalize
               return
             endif
             recvs(recvcount)=i-1
-            lrhalo(:,recvcount)=max(to_lb,lowers(:,i))-off
-            urhalo(:,recvcount)=min(to_ub,uppers(:,i))-off
+            lrparcel(:,recvcount)=max(to_lb,lowers(:,i))-off
+            urparcel(:,recvcount)=min(to_ub,uppers(:,i))-off
           endif
         enddo
 
         call d%init(sendcount,recvcount,comm,err=err)
         if (isnonzero(err)) return
         do i=1,recvcount
-          call h%create_subarray_bounds(cto%lb,cto%ub,lrhalo(:,i),urhalo(:,i),err=err)
+          call h%create_subarray_bounds(cto%lb,cto%ub,lrparcel(:,i),urparcel(:,i),err=err)
           if (isnonzero(err)) return
           call d%add_recv(recvs(i),h,err=err)
           if (isnonzero(err)) return
         enddo
         do i=1,sendcount
-          call h%create_subarray_bounds(cfrom%lb,cfrom%ub,lshalo(:,i),ushalo(:,i),err=err)
+          call h%create_subarray_bounds(cfrom%lb,cfrom%ub,lsparcel(:,i),usparcel(:,i),err=err)
           if (isnonzero(err)) return
           call d%add_send(sends(i),h,err=err)
           if (isnonzero(err)) return
         enddo
 
-        deallocate(lshalo,ushalo,lrhalo,urhalo)
+        deallocate(lsparcel,usparcel,lrparcel,urparcel)
         deallocate(lb,ub)
         deallocate(low,up)
         deallocate(lbs,ubs)
@@ -1458,21 +1458,21 @@ logical recursive function signs(d,n) result(signsr)
       if (check) then
         do i=1,self%sends
           if (isdebug()) print*,'i=',i
-          if (.not.self%sendhalos(i)%is_absolute()) then
-            call error(35,"Send halo not absolute",err)
+          if (.not.self%sendparcels(i)%is_absolute()) then
+            call error(35,"Send parcel not absolute",err)
             return
           endif 
         enddo
         do i=1,self%recvs
-          if (.not.self%recvhalos(i)%is_absolute()) then
-            call error(36,"Receive halo not absolute",err)
+          if (.not.self%recvparcels(i)%is_absolute()) then
+            call error(36,"Receive parcel not absolute",err)
             return
           endif 
         enddo
       endif
       
-      call MPI_Neighbor_alltoallw(MPI_BOTTOM,self%sendcnts,self%senddispls,self%sendhalos%m, &
-     &  MPI_BOTTOM,self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
+      call MPI_Neighbor_alltoallw(MPI_BOTTOM,self%sendcnts,self%senddispls,self%sendparcels%m, &
+     &  MPI_BOTTOM,self%recvcnts,self%recvdispls,self%recvparcels%m,self%comm,mpierr)
 
       end subroutine distribution_update_bottom
 
@@ -1496,14 +1496,14 @@ logical recursive function signs(d,n) result(signsr)
       if (check) then
         do i=1,self%sends
           if (isdebug()) print*,'i=',i
-          if (.not.self%sendhalos(i)%is_valid_halo(vsend)) then
-            call error(33,"Send halo not valid",err)
+          if (.not.self%sendparcels(i)%is_valid_parcel(vsend)) then
+            call error(33,"Send parcel not valid",err)
             return
           endif 
         enddo
         do i=1,self%recvs
-          if (.not.self%recvhalos(i)%is_valid_halo(vrecv)) then
-            call error(34,"Receive halo not valid",err)
+          if (.not.self%recvparcels(i)%is_valid_parcel(vrecv)) then
+            call error(34,"Receive parcel not valid",err)
             return
           endif 
         enddo
@@ -1511,8 +1511,8 @@ logical recursive function signs(d,n) result(signsr)
       
       call c_f_pointer(c_loc(vsend),psend,(/size(vsend)/))
       call c_f_pointer(c_loc(vrecv),precv,(/size(vrecv)/))
-      call MPI_Neighbor_alltoallw(psend,self%sendcnts,self%senddispls,self%sendhalos%m, &
-     &  precv,self%recvcnts,self%recvdispls,self%recvhalos%m,self%comm,mpierr)
+      call MPI_Neighbor_alltoallw(psend,self%sendcnts,self%senddispls,self%sendparcels%m, &
+     &  precv,self%recvcnts,self%recvdispls,self%recvparcels%m,self%comm,mpierr)
                    
       end subroutine distribution_update_sendrecv
 
@@ -1535,14 +1535,14 @@ logical recursive function signs(d,n) result(signsr)
 
       end subroutine distribution_update_alt
 
-!> finalize halo
+!> finalize parcel
 !dox @private
-      subroutine finalize_halo(h)
-        type(halo) :: h
+      subroutine finalize_parcel(h)
+        type(parcel) :: h
 
         integer mpierr
 
-        if (isdebug()) print*,'Finalizing halo ',h%m
+        if (isdebug()) print*,'Finalizing parcel ',h%m
         if (associated(h%i)) then
 !          deallocate(h%i)
           nullify(h%i)
@@ -1552,24 +1552,24 @@ logical recursive function signs(d,n) result(signsr)
           h%initialized=.false.
         endif
 
-      end subroutine finalize_halo
+      end subroutine finalize_parcel
 
-!> copy halo
-      subroutine copy_halo(hout,hin)
-        class(halo),intent(inout) :: hout
-        class(halo),intent(in)    :: hin
+!> copy parcel
+      subroutine copy_parcel(hout,hin)
+        class(parcel),intent(inout) :: hout
+        class(parcel),intent(in)    :: hin
 
         integer mpierr
 
-        if (isdebug()) print*,'copy_halo ',hin%initialized,hin%m
+        if (isdebug()) print*,'copy_parcel ',hin%initialized,hin%m
         hout%absolute=hin%absolute
         if (hin%m.ne.MPI_DATATYPE_NULL) then
           call MPI_Type_dup(hin%m,hout%m,mpierr)
         endif
         if(associated(hin%i))allocate(hout%i,source=hin%i)
-      end subroutine copy_halo
+      end subroutine copy_parcel
 
-!> check subarray halo
+!> check subarray parcel
 !dox @private
       function check_subarray(self,v)
         use mpi 
@@ -1630,7 +1630,7 @@ logical recursive function signs(d,n) result(signsr)
         check_subarray=ierr
       end function check_subarray
 
-!> check subarray halo
+!> check subarray parcel
 !dox @private
       function check_combined(self,v)
         use mpi 
@@ -1648,32 +1648,32 @@ logical recursive function signs(d,n) result(signsr)
 
       if (isdebug()) print*,'n=',self%n                                                          
       do i=1,self%n
-        if(.not.self%halos(i)%is_valid_halo(v)) ierr=.false.
+        if(.not.self%parcels(i)%is_valid_parcel(v)) ierr=.false.
       enddo
 
         check_combined=ierr
       end function check_combined
 
-!> is halo absolute?
+!> is parcel absolute?
 !dox @private
-      function halo_is_absolute(self)
+      function parcel_is_absolute(self)
         use mpi 
-        logical  :: halo_is_absolute
+        logical  :: parcel_is_absolute
 
-        class(halo), intent(in)                         :: self
+        class(parcel), intent(in)                         :: self
 
-        call debug('halo_is_absolute')
+        call debug('parcel_is_absolute')
 
-        halo_is_absolute=self%absolute
+        parcel_is_absolute=self%absolute
 
-      end function halo_is_absolute
+      end function parcel_is_absolute
                                                                         
-!> Commit a halo. If the object is a joined halo, it first creates the derived datatype.
-!dox @relates gabriel::halo
-      subroutine halo_commit(self,err) 
+!> Commit a parcel. If the object is a joined parcel, it first creates the derived datatype.
+!dox @relates gabriel::parcel
+      subroutine parcel_commit(self,err) 
         use mpi 
                                                                         
-        class(halo),intent(inout) :: self
+        class(parcel),intent(inout) :: self
         integer, intent(out), optional :: err
 
         integer mpierr
@@ -1689,36 +1689,36 @@ logical recursive function signs(d,n) result(signsr)
 
         call MPI_Type_commit(self%m,mpierr) 
                                                                         
-      end subroutine halo_commit
+      end subroutine parcel_commit
 
-!> check validity of a halo for a variable
+!> check validity of a parcel for a variable
 !dox @private
-      function check_halo(self,v)
-        logical :: check_halo
-        class(halo),intent(in) :: self
+      function check_parcel(self,v)
+        logical :: check_parcel
+        class(parcel),intent(in) :: self
         real,dimension(..),allocatable,intent(in) :: v
 
-        call debug('check_halo')
+        call debug('check_parcel')
 
-        check_halo=.false.
-! if the halo is of absolute type, return .false.
+        check_parcel=.false.
+! if the parcel is of absolute type, return .false.
         if (self%is_absolute()) return
         select type(h=>self%i)
         type is (subarray)
-          check_halo=h%is_valid_halo(v)
+          check_parcel=h%is_valid_parcel(v)
         type is (combined)
-          check_halo=h%is_valid_halo(v)
+          check_parcel=h%is_valid_parcel(v)
         class default
-          if (h%initialized) check_halo=.true.
+          if (h%initialized) check_parcel=.true.
         end select
 
-      end function check_halo
+      end function check_parcel
 
 !> Function to return a duplicate of the MPI type
-!dox @relates gabriel::halo
+!dox @relates gabriel::parcel
 !dox @public
       function mpitype(self)
-        class(halo), intent(in) :: self
+        class(parcel), intent(in) :: self
         integer :: mpitype
         integer :: mpierr
 

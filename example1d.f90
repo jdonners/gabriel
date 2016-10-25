@@ -11,7 +11,7 @@ program ex1d
   real,dimension(:,:),allocatable :: c
   integer ierr,rank,right,left,mpisize,i,j,k
 
-  type(halo) :: h(10,2)
+  type(parcel) :: h(10,2)
   type(distribution) :: d
   call MPI_Init(ierr)
   call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
@@ -28,12 +28,12 @@ program ex1d
 
   write(*,'(a,i3,a,12f13.3)')'BEFORE Rank',rank,' data=',a(:)
 
-  print*,'Define subarray halos..'
+  print*,'Define subarray parcels..'
   call h(1,1)%subarray(a,(/n/),(/n/))
   call h(1,2)%subarray(a,(/0/),(/0/))
   call h(2,1)%subarray(a,(/n-1/),(/n-1/))
   call h(2,2)%subarray(a,(/1/),(/1/))
-  print*,'Define combined halos..'
+  print*,'Define combined parcels..'
   call h(3,1)%combined(h(1:2,1))
   call h(3,2)%combined(h(1:2,2))
 
@@ -48,7 +48,7 @@ program ex1d
 
   print*,'Check to see if validity check works'
   print*,'Result should be NOT valid'
-  if (h(3,1)%is_valid_halo(c)) then
+  if (h(3,1)%is_valid_parcel(c)) then
     print*,' Valid'
   else
     print*,'NOT valid'
@@ -56,7 +56,7 @@ program ex1d
 
   print*,'Update decomposition..'
   print*,'Result should be valid'
-  if (h(3,1)%is_valid_halo(a)) then
+  if (h(3,1)%is_valid_parcel(a)) then
     print*,' Valid'
   else
     print*,'NOT valid'
