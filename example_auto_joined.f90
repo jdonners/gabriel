@@ -51,7 +51,7 @@ program ex
   call gabriel_init
 !  call d%halo(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
 !  call d%halo(a,(/hor*s,ver*s,1/),(/hor*s+s-1,ver*s+s+1,6/),MPI_COMM_WORLD,periodic=(/.true.,.false.,.false./))
-  call c%initialize(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
+  call c%init(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
   call d%halo(c)
 
 !  call d%halo(a,(/hor*s,ver*s,1/),(/hor*s+s-1,ver*s+s+1,6/),MPI_COMM_WORLD)

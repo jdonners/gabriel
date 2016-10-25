@@ -51,8 +51,8 @@ program ex
  print*,'BEFORE Rank',rank,' data=',a(lbound(a,1),:),lbound(a,2),ubound(a,2)
 
   print*,'Create compositions..'
-  call b1%initialize(a,lbound(a),ubound(a),MPI_COMM_WORLD)
-  call b2%initialize(b,lbound(b),ubound(b),MPI_COMM_WORLD)
+  call b1%init(a,lbound(a),ubound(a),MPI_COMM_WORLD)
+  call b2%init(b,lbound(b),ubound(b),MPI_COMM_WORLD)
   print*,'Create transform..'
   call d%transform(b1,b2)
 

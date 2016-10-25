@@ -40,15 +40,15 @@ module gabriel
         class(halo), pointer, private :: i            !< pointer to extended halo type for verification (boundary checking)
         contains
           procedure, public :: mpitype                        !< Return a duplicate of the MPI type
-          procedure, private :: copy_halo                      !< Copy a halo
           generic :: assignment(=) => copy_halo       !< Define assignment of a halo
+          procedure, private :: copy_halo                      !< Copy a halo
           procedure :: combined => create_combined                !< Combine different halos of the same variable
           procedure :: joined => halo_joined_init                  !< Join the same halo of different variables
-          procedure :: add_joined
+          procedure :: add_joined => halo_joined_add
           procedure :: commit => halo_commit                      !< commit halo datatype and create joined datatype
           procedure :: subarray => create_subarray                !< Create a subarray type
           procedure, private :: create_subarray_bounds                !< Create a subarray type with bounds of array
-          procedure :: is_valid_halo => check_halo                 !< Verify a halo
+          procedure :: is_valid_halo => check_halo                 !< Verify a combination of halo and variable
           procedure :: is_absolute => halo_is_absolute       !< Is a halo absolute?
           procedure :: print => print_halo            !< print halo
           final :: finalize_halo                      !< Finalize a halo
@@ -88,7 +88,7 @@ module gabriel
         integer,dimension(:),allocatable :: upper_comp         !< upper bounds of composition
         logical,dimension(:),allocatable :: periodic           !< periodicity of composition for each dimension
         contains
-          procedure :: initialize => box_initialize !< Initialize a box composition
+          procedure :: init => box_initialize !< Initialize a box composition
       end type
 
 !> Type to combine multiple halos of the same variable
@@ -130,8 +130,8 @@ module gabriel
         contains
           procedure :: init => distribution_init              !< initialize distribution
           procedure :: is_initialized => distribution_isinitialized              !< check initialized distribution
-          procedure :: add_send => add_distribution_send_      !< add a neighbor to send to
-          procedure :: add_recv => add_distribution_recv_      !< add a neighbor to recv from
+          procedure :: add_send => distribution_add_send      !< add a neighbor to send to
+          procedure :: add_recv => distribution_add_recv      !< add a neighbor to recv from
           procedure :: create => distribution_create           !< create the graph communicator of the distribution
 ! Unfortunately, this generic triggers an Intel compiler bug because of assumed-rank arrays, see topic 595234 in the Intel Forum
 !          generic   :: update => distribution_update_single,distribution_update_bottom,distribution_update_sendrecv           !< update the distribution
@@ -592,7 +592,7 @@ module gabriel
 
 !> Add a variable to a joined halo type
 !dox @relates gabriel::subarray
-      subroutine add_joined(self,v,err)
+      subroutine halo_joined_add(self,v,err)
         use mpi
 
         class(halo), intent(inout) :: self
@@ -622,7 +622,7 @@ module gabriel
           return
       end select
                                                                         
-      end subroutine add_joined
+      end subroutine halo_joined_add
 
 !> Initialize a distribution
 !dox @relates gabriel::distribution
@@ -655,7 +655,7 @@ module gabriel
 
 !> Add a receive to a distribution
 !dox @relates gabriel::distribution
-      subroutine add_distribution_recv_(d,rank,h,err)
+      subroutine distribution_add_recv(d,rank,h,err)
         use mpi
         class(distribution), intent(inout)                 :: d
         type(halo), intent(in)                             :: h
@@ -678,11 +678,11 @@ module gabriel
         d%recvweights(n)=1
         d%recvs=n
 
-      end subroutine add_distribution_recv_
+      end subroutine distribution_add_recv
 
 !> Add a send to a distribution
 !dox @relates gabriel::distribution
-      subroutine add_distribution_send_(d,rank,h,err)
+      subroutine distribution_add_send(d,rank,h,err)
         use mpi
         class(distribution), intent(inout)                 :: d
         type(halo), intent(in)                             :: h
@@ -705,7 +705,7 @@ module gabriel
         d%sendweights(n)=1
         d%sends=n
 
-      end subroutine add_distribution_send_
+      end subroutine distribution_add_send
       
 !> Commit a distribution
 !dox @relates gabriel::distribution
@@ -1134,7 +1134,7 @@ end subroutine composition_finalize
 
         type(box) :: b
         
-        call b%initialize(v,lower,upper,comm,offset,periodic,err)
+        call b%init(v,lower,upper,comm,offset,periodic,err)
         call d%halo(b,err)
         call d%create(err=err)
       end subroutine distribution_autocreate

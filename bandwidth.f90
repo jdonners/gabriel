@@ -61,7 +61,7 @@ program ex
 
   call gabriel_init
   
-  call bo%initialize(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,s/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
+  call bo%init(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,s/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
   call d%halo(bo)
 !  call d%autocreate(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.false.,.false./))
   call d%joined(vars)
