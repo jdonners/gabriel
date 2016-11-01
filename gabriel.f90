@@ -70,6 +70,7 @@ module gabriel
 
 !> Type to describe a composition
       type, private :: composition
+        private
         integer                         :: comm=MPI_COMM_NULL          !< MPI communicator
         contains
           procedure :: is_initialized => composition_isinitialized
@@ -142,7 +143,7 @@ module gabriel
           procedure :: update => distribution_update_alt           !< update the distribution
           procedure :: autocreate => distribution_autocreate   !< create autodistribution
           procedure :: transform => create_reshuffle_           !< create transformation
-          procedure :: parcel => distribution_parcel               !< setup parcels, but don't create
+          procedure :: halo => distribution_halo               !< setup halo, but don't create
           procedure :: joined => distribution_joined           !< setup joined distribution
           procedure :: joined_add => distribution_joined_add   !< add variable to joined distribution
           procedure, public :: distribution_update_single           !< update the distribution
@@ -707,13 +708,15 @@ module gabriel
 
       end subroutine distribution_add_send
       
-!> Commit a distribution
+!> Commit a distribution. After the distribution is committed, it 
+!> can be used in an update call, but it can't be modified anymore.
+!> This call uses collective MPI routines.
 !dox @relates gabriel::distribution
       subroutine distribution_create(d,i,reorder,err)
         use mpi
-        class(distribution), intent(inout)           :: d            !< distribution type
+        class(distribution), intent(inout)           :: d             !< distribution type
         integer, optional, intent(in)                 :: i            !< MPI_Info, default MPI_INFO_NULL
-        logical, optional, intent(in)                 :: reorder      !< reorder, default .true.
+        logical, optional, intent(in)                 :: reorder      !< allow to reorder ranks, default .true.
         integer, intent(out), optional                 :: err         !< error indicator
 
         integer info,ierr
@@ -899,10 +902,10 @@ subroutine composition_finalize(comp)
 
 end subroutine composition_finalize
 
-!> Automatically create a distribution with all parcels.
+!> Automatically create a distribution with all halos.
 !> This is a collective MPI call.
 !dox @relates gabriel::distribution
-      subroutine distribution_parcel(dist,comp,err)
+      subroutine distribution_halo(dist,comp,err)
         use mpi
         class(distribution), intent(inout)          :: dist    !< Resulting distribution
         class(composition), intent(in)            :: comp    !< Input composition
@@ -910,17 +913,17 @@ end subroutine composition_finalize
 
         select type(comp)
         type is (box)
-          call distribution_parcel_box(dist,comp,err)
+          call distribution_halo_box(dist,comp,err)
         class default
           call error(200,"composition unknown!",err)
         end select
         
-      end
+      end subroutine distribution_halo
 
-!> Automatically create a distribution with all parcels.
+!> Automatically create a distribution with all halos.
 !> This is a collective MPI call.
 !dox @relates gabriel::distribution
-      subroutine distribution_parcel_box(dist,comp,err)
+      subroutine distribution_halo_box(dist,comp,err)
         use mpi
         class(distribution), intent(inout)          :: dist    !< Resulting distribution
         class(box), intent(in)                      :: comp    !< Input composition
@@ -1117,7 +1120,7 @@ end subroutine composition_finalize
         deallocate(lbs,ubs)
         deallocate(lowers,uppers)
 
-      end subroutine distribution_parcel_box
+      end subroutine distribution_halo_box
 
       subroutine distribution_autocreate(d,v,lower,upper,comm,offset,periodic,err)
         use mpi
@@ -1135,7 +1138,7 @@ end subroutine composition_finalize
         type(box) :: b
         
         call b%init(v,lower,upper,comm,offset,periodic,err)
-        call d%parcel(b,err)
+        call d%halo(b,err)
         call d%create(err=err)
       end subroutine distribution_autocreate
    
@@ -1162,6 +1165,7 @@ end subroutine composition_finalize
         
         select type(cfrom)
         type is (box)
+!! Unfortunately, the transform between two box distribution does not yet support offsets
           call create_reshuffle_box(d,cfrom,cto,err)
         class default
           call error(200,"composition unknown!",err)

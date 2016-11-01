@@ -64,7 +64,6 @@ program ex1d
 
   print*,'Update decomposition..'
   call d%update(a,a)
-
   write(*,'(a,i3,a,12f13.3)')'AFTER  Rank',rank,' data=',a(:)
   deallocate(a)
 

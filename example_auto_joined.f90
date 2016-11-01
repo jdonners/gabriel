@@ -52,7 +52,7 @@ program ex
 !  call d%parcel(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
 !  call d%parcel(a,(/hor*s,ver*s,1/),(/hor*s+s-1,ver*s+s+1,6/),MPI_COMM_WORLD,periodic=(/.true.,.false.,.false./))
   call c%init(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
-  call d%parcel(c)
+  call d%halo(c)
 
 !  call d%parcel(a,(/hor*s,ver*s,1/),(/hor*s+s-1,ver*s+s+1,6/),MPI_COMM_WORLD)
 print*,'Created parcel. Now make it into a joined one'
