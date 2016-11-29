@@ -131,17 +131,20 @@ AC_MSG_CHECKING([if ${FC} correctly sets bounds of assumed rank arrays])
 AC_RUN_IFELSE(
   [AC_LANG_SOURCE([[
       program conftest
+      real a(2:4)
+
+      if (lb(a).ne.2) then
+        error stop 1
+      endif
+ 
       contains
 
       integer function lb(a)
         real,dimension(..) :: a 
 
-        return(lbound(a,1))
+        lb=lbound(a,1)
       end function
       
-      real a(2:4)
-      
-      if (lb(a).ne.2) stop
       
       end]])],
   [assumedrank_bounds=yes],

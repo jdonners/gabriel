@@ -543,7 +543,7 @@ module gabriel
         use mpi
 
         class(distribution), intent(inout) :: self
-        real, dimension(:,:,:), allocatable, intent(in)    :: v
+        real, dimension(..), allocatable, intent(in)    :: v
         integer, intent(out), optional :: err
                                                                         
         integer i
@@ -597,7 +597,7 @@ module gabriel
         use mpi
 
         class(parcel), intent(inout) :: self
-        real, dimension(:,:,:), allocatable, intent(in)    :: v
+        real, dimension(..), allocatable, intent(in)    :: v
         integer, intent(out), optional :: err
                                                                         
         integer mpierr,n 
