@@ -112,7 +112,7 @@ if test "x$_ax_f03_finalization_found" == "xno" ; then
 fi
 
 AC_MSG_CHECKING([if ${FC} supports assumed rank arrays])
-AC_LINK_IFELSE(
+AC_COMPILE_IFELSE(
   [AC_LANG_SOURCE([[
       program conftest
       contains
@@ -126,6 +126,27 @@ AC_LINK_IFELSE(
   [assumedrank_works=yes],
   [assumedrank_works=no AC_MSG_ERROR([${FC} does not support assumed rank arrays.])])
 AC_MSG_RESULT([$assumedrank_works])
+
+AC_MSG_CHECKING([if ${FC} correctly sets bounds of assumed rank arrays])
+AC_RUN_IFELSE(
+  [AC_LANG_SOURCE([[
+      program conftest
+      contains
+
+      integer function lb(a)
+        real,dimension(..) :: a 
+
+        return(lbound(a,1))
+      end function
+      
+      real a(2:4)
+      
+      if (lb(a).ne.2) stop
+      
+      end]])],
+  [assumedrank_bounds=yes],
+  [assumedrank_bounds=no])
+AC_MSG_RESULT([$assumedrank_bounds])
 
 # Checks for header files.
 

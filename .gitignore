@@ -21,6 +21,7 @@ config.status
 *.mod
 *.tar.gz
 *~
+m4
 example1d
 example_auto
 example_auto_joined
@@ -28,4 +29,6 @@ example_auto_offset
 example_err
 example_joined
 example_transform
+example_transform_offset
 bandwidth
+a.out

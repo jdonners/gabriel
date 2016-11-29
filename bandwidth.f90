@@ -39,21 +39,21 @@ program ex
     write(output_unit,nml=halo_exchange)
     print*,'MPI size: ',mpisize
   endif
-  if (vars.lt.2.or.vars.gt.4)then
-    print*,'Vars should be between 2 and 4'
+  if (vars.lt.1.or.vars.gt.4)then
+    print*,'Vars should be between 1 and 4'
     call MPI_Abort(MPI_COMM_WORLD,1,ierr)
   endif
 
   hor=mod(rank,nproc_row)
   ver=rank/nproc_row
   allocate(a(hor*s-halo_width:hor*s+s+halo_width-1,ver*s-halo_width+1:ver*s+s+halo_width,s))
-  allocate(b(hor*s-halo_width:hor*s+s+halo_width-1,ver*s-halo_width+1:ver*s+s+halo_width,s))
+  if(vars.ge.2)allocate(b(hor*s-halo_width:hor*s+s+halo_width-1,ver*s-halo_width+1:ver*s+s+halo_width,s))
   if(vars.ge.3)allocate(c(hor*s-halo_width:hor*s+s+halo_width-1,ver*s-halo_width+1:ver*s+s+halo_width,s))
   if(vars.ge.4)allocate(e(hor*s-halo_width:hor*s+s+halo_width-1,ver*s-halo_width+1:ver*s+s+halo_width,s))
   a=rank
-  b=10+rank
+  if(vars.ge.2)b=10+rank
   call zet_array(a,halo_width)
-  call zet_array(b,halo_width)
+  if(vars.ge.2)call zet_array(b,halo_width)
   if(vars.ge.3)call zet_array(c,halo_width)
   if(vars.ge.4)call zet_array(e,halo_width)
 
@@ -64,22 +64,32 @@ program ex
   call bo%init(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,s/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
   call d%halo(bo)
 !  call d%autocreate(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.false.,.false./))
-  call d%joined(vars)
-  call d%joined_add(a)
-  call d%joined_add(b)
-  if(vars.ge.3)call d%joined_add(c)
-  if(vars.ge.4)call d%joined_add(e)
+  if(vars.ge.2) then
+    call d%joined(vars)
+    call d%joined_add(a)
+    call d%joined_add(b)
+    if(vars.ge.3)call d%joined_add(c)
+    if(vars.ge.4)call d%joined_add(e)
+  endif
   call d%create()
 
   if(rank.eq.0)print*,'Warming up..'
-  do i=1,warmloop
-    call d%update()
-  enddo
+  if (vars.ge.2) then
+    do i=1,warmloop
+      call d%update()
+    enddo
+  else
+    do i=1,warmloop
+      call d%update(a)
+    enddo
+  endif
+
   if(rank.eq.0)print*,'Apply distribution..'
   call gabriel_disable_checking
 
   t=0.0
   pow2=1
+  if (vars.ge.2) then
   do i=1,timeloop
     if (rank.eq.0.and.i.eq.pow2) then
       write(*,'(i5,a1)')i,' '
@@ -97,6 +107,22 @@ program ex
     if(vars.ge.3)call zet_array(c,halo_width)
     if(vars.ge.4)call zet_array(e,halo_width)
   enddo
+  else
+  do i=1,timeloop
+    if (rank.eq.0.and.i.eq.pow2) then
+      write(*,'(i5,a1)')i,' '
+      pow2=pow2*2
+    endif
+    call MPI_Barrier(MPI_COMM_WORLD,ierr)
+    t0=MPI_Wtime()
+    call d%update(a)
+
+    t1=MPI_Wtime()
+    t=t+(t1-t0)
+!    a=0.0
+    call zet_array(a,halo_width)
+  enddo
+  endif
 
   call MPI_Type_create_f90_real(precision(dummyreal),exponent(dummyreal),realtype,ierr)
   call MPI_Type_size(realtype,realsize,ierr)
@@ -119,7 +145,8 @@ program ex
 !  write(*,'(a,i3,a,i4,4f13.3)')' AFTER Rank',rank,' data=',ver*s+1,a(:,ver*s+1,1)
 !  write(*,'(a,i3,a,i4,4f13.3)')' AFTER Rank',rank,' data=',ver*s+2,a(:,ver*s+2,1)
 !  write(*,'(a,i3,a,i4,4f13.3)')' AFTER Rank',rank,' data=',ver*s+3,a(:,ver*s+3,1)
-  deallocate(a,b)
+  deallocate(a)
+  if(vars.ge.2)deallocate(b)
   if(vars.ge.3)deallocate(c)
   if(vars.ge.4)deallocate(e)
   call MPI_Finalize(ierr)
