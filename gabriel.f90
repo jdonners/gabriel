@@ -1213,27 +1213,22 @@ end subroutine composition_finalize
           return
         endif
 
-        if (any(cfrom%offset.ne.0 .or. cto%offset.ne.0)) then
-          call error(204,"Offset for transform not yet supported!",err)
-          return
-        endif
-
         r=cfrom%ndim
         allocate(lb(r),ub(r))
         allocate(low(r),up(r))
         allocate(to_lb(r),to_ub(r))
 
-        lb=cfrom%lb
-        ub=cfrom%lb
-        low=cfrom%lower
-        up=cfrom%upper
-        to_lb=cto%lb
-        to_ub=cto%ub
-
         allocate(off_from(r),off_to(r),off(r))
         off_from=cfrom%offset
         off_to=cto%offset
         off=0
+
+        lb=cfrom%lb+off_from
+        ub=cfrom%lb+off_from
+        low=cfrom%lower+off_from
+        up=cfrom%upper+off_from
+        to_lb=cto%lb+off_to
+        to_ub=cto%ub+off_to
         
         call MPIcheck(err)
 
@@ -1264,10 +1259,9 @@ end subroutine composition_finalize
         do i=1,commsize
 ! check for overlap of active from-domains with other from-domains, if so, error!
           if (i-1.ne.commrank .and. all(up.ge.lowers(:,i)).and.all(low.le.uppers(:,i))) then
-             if(isinfo())print*,'upper=',up
-             if(isinfo())print*,'uppers=',uppers(:,i)
-             if(isinfo())print*,'lower=',low
-             if(isinfo())print*,'lowers=',lowers(:,i)
+             if(isinfo())print*,'Ranks overlap=',i-1,commrank
+             if(isinfo())print*,'upper+offset=',up-off_from
+             if(isinfo())print*,'lower+offset=',low-off_from
              call error(28,"Overlap of active domains!",err)
              return
           endif
@@ -1280,8 +1274,8 @@ end subroutine composition_finalize
               return
             endif
             sends(sendcount)=i-1
-            lsparcel(:,sendcount)=max(to_lbs(:,i),low)-off
-            usparcel(:,sendcount)=min(to_ubs(:,i),up)-off
+            lsparcel(:,sendcount)=max(to_lbs(:,i),low)-off_from
+            usparcel(:,sendcount)=min(to_ubs(:,i),up)-off_from
           endif
 ! check for overlap of my full to-domain with active from-domains
           if (all(to_ub.ge.lowers(:,i)).and.all(to_lb.le.uppers(:,i))) then
@@ -1292,8 +1286,8 @@ end subroutine composition_finalize
               return
             endif
             recvs(recvcount)=i-1
-            lrparcel(:,recvcount)=max(to_lb,lowers(:,i))-off
-            urparcel(:,recvcount)=min(to_ub,uppers(:,i))-off
+            lrparcel(:,recvcount)=max(to_lb,lowers(:,i))-off_to
+            urparcel(:,recvcount)=min(to_ub,uppers(:,i))-off_to
           endif
         enddo
 
