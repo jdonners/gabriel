@@ -156,6 +156,7 @@ AC_MSG_RESULT([$assumedrank_bounds])
 # Checks for typedefs, structures, and compiler characteristics.
 
 # Checks for library functions.
+LT_PREREQ([2.4.2])
 LT_INIT
 
 AC_CONFIG_FILES([Makefile])
