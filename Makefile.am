@@ -1,5 +1,5 @@
 lib_LTLIBRARIES = libgabriel.la
-libgabriel_la_LDFLAGS = -version-info 3:0:0
+libgabriel_la_LDFLAGS = -version-info 3:1:0
 libgabriel_la_SOURCES = gabriel.f90
 
 nodist_include_HEADERS = gabriel.$(FC_MODEXT)

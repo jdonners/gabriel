@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.69])
-AC_INIT([gabriel], [1.3.1], [john.donners@surfsara.nl])
+AC_INIT([gabriel], [1.3.2], [john.donners@surfsara.nl])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE
@@ -11,6 +11,7 @@ AM_SILENT_RULES([yes])
 AC_LANG([Fortran])
 
 # AC_PROG_FC
+AC_PROG_SED
 AX_PROG_FC_MPI([true],
   [ use_mpi=yes],
   [AC_MSG_ERROR([MPI compiler needed, but could not find MPI.],1)
@@ -147,8 +148,8 @@ AC_RUN_IFELSE(
       
       
       end]])],
-  [assumedrank_bounds=yes],
-  [assumedrank_bounds=no])
+  [assumedrank_bounds=yes ; $SED -i 's/dimension(\.\.), allocatable/dimension(..)/' $srcdir/gabriel.f90 ],
+  [assumedrank_bounds=no ; $SED -i 's/dimension(\.\.), intent/dimension(..), allocatable, intent/' $srcdir/gabriel.f90 ])
 AC_MSG_RESULT([$assumedrank_bounds])
 
 # Checks for header files.

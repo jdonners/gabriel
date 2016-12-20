@@ -355,8 +355,8 @@ module gabriel
 !! This is used to communicate a subarray of a larger array
         use mpi
 
-        class(parcel)                                             :: self           !< parcel
-        real, intent(in), dimension(..), allocatable            :: array          !< input array
+        class(parcel)                                           :: self           !< parcel
+        real, dimension(..), intent(in)                         :: array          !< input array
         integer, intent(in), dimension(:)                       :: starts         !< starting indices of subarray
         integer, intent(in), dimension(:), optional             :: stops          !< stopping indices of subarray
         integer, intent(in), dimension(:), optional             :: subsizes       !< subsizes of subarray
@@ -543,7 +543,7 @@ module gabriel
         use mpi
 
         class(distribution), intent(inout) :: self
-        real, dimension(..), allocatable, intent(in)    :: v
+        real, dimension(..), intent(in)    :: v
         integer, intent(out), optional :: err
                                                                         
         integer i
@@ -597,7 +597,7 @@ module gabriel
         use mpi
 
         class(parcel), intent(inout) :: self
-        real, dimension(..), allocatable, intent(in)    :: v
+        real, dimension(..), intent(in)    :: v
         integer, intent(out), optional :: err
                                                                         
         integer mpierr,n 
@@ -796,7 +796,7 @@ module gabriel
       subroutine box_initialize(comp,v,lower,upper,comm,offset,periodic,err)
         use mpi
         class(box), intent(inout)            :: comp           !< Resulting box composition
-        real, dimension(..), allocatable, intent(in)   :: v    !< variable to create composition for
+        real, dimension(..), intent(in)   :: v    !< variable to create composition for
         integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
         integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
         integer, intent(in)               :: comm              !< communicator
@@ -1125,7 +1125,7 @@ end subroutine composition_finalize
       subroutine distribution_autocreate(d,v,lower,upper,comm,offset,periodic,err)
         use mpi
         class(distribution), intent(inout)            :: d    !< Resulting distribution
-        real, dimension(..), allocatable, intent(in)   :: v    !< variable to create parcels for
+        real, dimension(..), intent(in)   :: v    !< variable to create parcels for
         integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
         integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
         integer, intent(in)               :: comm              !< communicator
@@ -1426,7 +1426,7 @@ logical recursive function signs(d,n) result(signsr)
         use mpi
         use iso_c_binding, only : c_loc,c_f_pointer
  
-        real, dimension(..), allocatable, target, intent(inout) :: v
+        real, dimension(..), intent(inout), target :: v
         class(distribution), intent(in)                    :: self
         integer, intent(out), optional                      :: err
 
@@ -1480,8 +1480,8 @@ logical recursive function signs(d,n) result(signsr)
       use iso_c_binding, only : c_loc,c_f_pointer
 
       class(distribution), intent(in)                    :: self
-      real, dimension(..), allocatable, target, intent(in)    :: vsend
-      real, dimension(..), allocatable, target, intent(inout) :: vrecv
+      real, dimension(..), intent(in), target    :: vsend
+      real, dimension(..), intent(inout), target :: vrecv
       integer, intent(out), optional                      :: err
 
       real,dimension(:),pointer :: psend,precv
@@ -1519,8 +1519,8 @@ logical recursive function signs(d,n) result(signsr)
       use iso_c_binding, only : c_loc,c_f_pointer
 
       class(distribution), intent(in)                    :: self
-      real, dimension(..), allocatable, target, optional, intent(inout) :: vsend
-      real, dimension(..), allocatable, target, optional, intent(inout) :: vrecv
+      real, dimension(..), intent(inout), target, optional :: vsend
+      real, dimension(..), intent(inout), target, optional :: vrecv
       integer, intent(out), optional                      :: err
 
       if (present(vsend).and.present(vrecv)) then
@@ -1574,7 +1574,7 @@ logical recursive function signs(d,n) result(signsr)
         logical :: check_subarray
                                                                         
         class(subarray), intent(in)                     :: self
-        real, dimension(..), allocatable, intent(in)    :: v 
+        real, dimension(..), intent(in)    :: v 
                                                                         
       integer           :: ndim
       integer status(MPI_STATUS_SIZE) 
@@ -1597,11 +1597,11 @@ logical recursive function signs(d,n) result(signsr)
       endif 
 
 !check contiguity of array
-!      if (.not.is_contiguous(v)) then
-!         if (verbose.gt.0)print*,"Array is not contiguous.."
-!         ierr=.false.
-!         return
-!      endif
+      if (.not.is_contiguous(v)) then
+         if (verbose.gt.0)print*,"Array is not contiguous.."
+         ierr=.false.
+         return
+      endif
 
       allocate(lb(ndim),ub(ndim))
       lb=lbound(v)
@@ -1636,7 +1636,7 @@ logical recursive function signs(d,n) result(signsr)
         integer, parameter           :: ndim=3
                                                                         
         class(combined), intent(in)                         :: self
-        real, dimension(..), allocatable, intent(in)    :: v 
+        real, dimension(..), intent(in)    :: v 
                                                                         
       integer i,status(MPI_STATUS_SIZE) 
       logical ierr
@@ -1694,7 +1694,7 @@ logical recursive function signs(d,n) result(signsr)
       function check_parcel(self,v)
         logical :: check_parcel
         class(parcel),intent(in) :: self
-        real,dimension(..),allocatable,intent(in) :: v
+        real,dimension(..), intent(in) :: v
 
         call debug('check_parcel')
 
