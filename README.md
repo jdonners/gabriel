@@ -24,9 +24,11 @@ It's recommended to download a release tarball of gabriel. The latest
 release tarball is [gabriel-1.3.1.tar.gz](https://github.com/jdonners/gabriel/releases/download/1.3.1/gabriel-1.3.1.tar.gz).
 An example of a build of the library is 
 
-    ./configure                    # use --enable-real8 for REAL*8 arrays
-    make
-    make install prefix=[prefix]
+```shell
+./configure                    # use --enable-real8 for REAL*8 arrays
+make
+make install prefix=[prefix]
+```
 
 where [prefix] is the directory where you want to install the library
 and the Fortran module.
@@ -81,31 +83,33 @@ So rank 0 calculates indices 0-4 and rank 1 calculates indices 5-9.
 Both ranks need some data from the neighbor in the halo region
 to be able to calculate its local indices. This would look something like:
 
-    program one_two
-      use mpi
-      use gabriel
+```fortran
+program one_two
+  use mpi
+  use gabriel
 
-      real,dimension(:),allocatable :: a
-      type(decomposition) :: dec
-      integer ierr,rank
+  real,dimension(:),allocatable :: a
+  type(decomposition) :: dec
+  integer ierr,rank
 
-      call MPI_Init(ierr)
-      call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
+  call MPI_Init(ierr)
+  call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
 
-      if (rank.eq.0) then
-        allocate(a(0:6))
-        a=0.0
-        call dec%autocreate(a,(/0/),(/4/),MPI_COMM_WORLD)
-      endif
-      if (rank.eq.1) then
-        allocate(a(3:9))
-        a=1.0
-        call dec%autocreate(a,(/5/),(/9/),MPI_COMM_WORLD)
-      endif
+  if (rank.eq.0) then
+    allocate(a(0:6))
+    a=0.0
+    call dec%autocreate(a,(/0/),(/4/),MPI_COMM_WORLD)
+  endif
+  if (rank.eq.1) then
+    allocate(a(3:9))
+    a=1.0
+    call dec%autocreate(a,(/5/),(/9/),MPI_COMM_WORLD)
+  endif
 
-      call dec%update(a,a)
-      write(*,'(a,i2,a,5f5.1)')'Rank=',rank,'   My values:=',a
-    end program
+  call dec%update(a,a)
+  write(*,'(a,i2,a,5f5.1)')'Rank=',rank,'   My values:=',a
+end program
+```
 
 and the output of the program will look like:
 
