@@ -118,6 +118,9 @@ module gabriel
         integer :: recvs=0                 !< actual number of neighbors to receive from
         integer :: maxsends                !< max number of neighbors to send to
         integer :: maxrecvs                !< max number of neighbors to receive from
+        integer :: sendbuf, recvbuf        !< buffer sizes for packing/unpacking 
+        
+        integer,allocatable,dimension(:) :: rpcnts,rpdispls !< byte counts and displacements for packed receive
         integer,allocatable,dimension(:) :: sendranks !< ranks of neighbors to send to
         integer,allocatable,dimension(:) :: recvranks !< ranks of neighbors to send to
         integer,allocatable,dimension(:) :: sendcnts  !< type count to send
@@ -141,6 +144,7 @@ module gabriel
 ! As a workaround, the user could call the three underlying routines directly.
 ! These should be private if the compiler works correctly.
           procedure :: update => distribution_update_alt           !< update the distribution
+          procedure :: update_packed => distribution_update_packunpack           !< update using pack/unpack
           procedure :: autocreate => distribution_autocreate   !< create autodistribution
           procedure :: transform => create_reshuffle_           !< create transformation
           procedure :: halo => distribution_halo               !< setup halo, but don't create
@@ -222,7 +226,7 @@ module gabriel
       subroutine debug(s)
         character(len=*),intent(in) :: s
 
-        if (isdebug()) print*,s
+        if (isdebug()) print*,'[debug] ',s
       end subroutine
 
       subroutine error(errcode,s,err)
@@ -235,7 +239,7 @@ module gabriel
 
         integer                        :: mpierr
 
-        if (iserror().and.present(s)) write(stderr,*) 'Error: ',s
+        if (iserror().and.present(s)) write(stderr,*) '[error] ',s
         if (.not.present(err)) then
           call MPI_Abort(MPI_COMM_WORLD,errcode,mpierr)
         else
@@ -356,7 +360,7 @@ module gabriel
         use mpi
 
         class(parcel)                                           :: self           !< parcel
-        real, dimension(..), intent(in)                         :: array          !< input array
+        real, dimension(..), allocatable, intent(in)                         :: array          !< input array
         integer, intent(in), dimension(:)                       :: starts         !< starting indices of subarray
         integer, intent(in), dimension(:), optional             :: stops          !< stopping indices of subarray
         integer, intent(in), dimension(:), optional             :: subsizes       !< subsizes of subarray
@@ -543,7 +547,7 @@ module gabriel
         use mpi
 
         class(distribution), intent(inout) :: self
-        real, dimension(..), intent(in)    :: v
+        real, dimension(..), allocatable, intent(in)    :: v
         integer, intent(out), optional :: err
                                                                         
         integer i
@@ -597,7 +601,7 @@ module gabriel
         use mpi
 
         class(parcel), intent(inout) :: self
-        real, dimension(..), intent(in)    :: v
+        real, dimension(..), allocatable, intent(in)    :: v
         integer, intent(out), optional :: err
                                                                         
         integer mpierr,n 
@@ -722,7 +726,7 @@ module gabriel
         integer info,ierr
         integer commsize
         logical mpi_reorder
-        integer cnt,n
+        integer cnt,n,pos
 
         type(parcel) h
 
@@ -790,13 +794,30 @@ module gabriel
           call error(3,"MPI_Dist_graph_create_adjacent error",err)
           return
         endif
+        
+        d%sendbuf=0
+        do n=1,d%sends
+          call MPI_Type_size(d%sendparcels(n)%m,cnt,ierr)
+          d%sendbuf=d%sendbuf+cnt
+        enddo
 
+        d%recvbuf=0
+        pos=0        
+        allocate(d%rpcnts(d%recvs),d%rpdispls(d%recvs))
+        do n=1,d%recvs
+          call MPI_Type_size(d%recvparcels(n)%m,cnt,ierr)
+          d%recvbuf=d%recvbuf+cnt
+          d%rpcnts(n)=cnt
+          d%rpdispls(n)=pos
+          pos=pos+cnt
+        enddo
+        
       end subroutine distribution_create
 
       subroutine box_initialize(comp,v,lower,upper,comm,offset,periodic,err)
         use mpi
         class(box), intent(inout)            :: comp           !< Resulting box composition
-        real, dimension(..), intent(in)   :: v    !< variable to create composition for
+        real, dimension(..), allocatable, intent(in)   :: v    !< variable to create composition for
         integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
         integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
         integer, intent(in)               :: comm              !< communicator
@@ -1125,7 +1146,7 @@ end subroutine composition_finalize
       subroutine distribution_autocreate(d,v,lower,upper,comm,offset,periodic,err)
         use mpi
         class(distribution), intent(inout)            :: d    !< Resulting distribution
-        real, dimension(..), intent(in)   :: v    !< variable to create parcels for
+        real, dimension(..), allocatable, intent(in)   :: v    !< variable to create parcels for
         integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
         integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
         integer, intent(in)               :: comm              !< communicator
@@ -1426,7 +1447,7 @@ logical recursive function signs(d,n) result(signsr)
         use mpi
         use iso_c_binding, only : c_loc,c_f_pointer
  
-        real, dimension(..), intent(inout), target :: v
+        real, dimension(..), allocatable, intent(inout), target :: v
         class(distribution), intent(in)                    :: self
         integer, intent(out), optional                      :: err
 
@@ -1480,8 +1501,8 @@ logical recursive function signs(d,n) result(signsr)
       use iso_c_binding, only : c_loc,c_f_pointer
 
       class(distribution), intent(in)                    :: self
-      real, dimension(..), intent(in), target    :: vsend
-      real, dimension(..), intent(inout), target :: vrecv
+      real, dimension(..), allocatable, intent(in), target    :: vsend
+      real, dimension(..), allocatable, intent(inout), target :: vrecv
       integer, intent(out), optional                      :: err
 
       real,dimension(:),pointer :: psend,precv
@@ -1514,13 +1535,69 @@ logical recursive function signs(d,n) result(signsr)
                    
       end subroutine distribution_update_sendrecv
 
+      subroutine distribution_update_packunpack(self,vsend,vrecv,err)
+      use mpi
+      use iso_c_binding, only : c_loc,c_f_pointer
+
+      class(distribution), intent(in)                    :: self
+      real, dimension(..), allocatable, intent(in), target    :: vsend
+      real, dimension(..), allocatable, intent(inout), target :: vrecv
+      integer, intent(out), optional                      :: err
+
+      real,dimension(self%sendbuf) :: sendbuf
+      real,dimension(self%recvbuf) :: recvbuf
+      integer,dimension(self%sends) :: sdispls,scnts
+      integer,dimension(self%recvs) :: rdispls,rcnts
+      real,dimension(:),pointer :: psend,precv
+      integer mpierr,status(MPI_STATUS_SIZE)
+      integer i,pos
+
+      if (present(err)) err=0
+
+      call debug('update_distribution_packunpack')
+      if (check) then
+        do i=1,self%sends
+          if (isdebug()) print*,'i=',i
+          if (.not.self%sendparcels(i)%is_valid_parcel(vsend)) then
+            call error(33,"Send parcel not valid",err)
+            return
+          endif 
+        enddo
+        do i=1,self%recvs
+          if (.not.self%recvparcels(i)%is_valid_parcel(vrecv)) then
+            call error(34,"Receive parcel not valid",err)
+            return
+          endif 
+        enddo
+      endif
+
+      call c_f_pointer(c_loc(vsend),psend,(/size(vsend)/))
+      call c_f_pointer(c_loc(vrecv),precv,(/size(vrecv)/))
+
+      pos=0
+      do i=1,self%sends
+        sdispls(i)=pos
+        call MPI_Pack(psend,1,self%sendparcels(i)%m,sendbuf,self%sendbuf,pos,self%comm,mpierr)
+        scnts(i)=pos-sdispls(i)
+      enddo
+
+      call MPI_Neighbor_alltoallv(sendbuf,scnts,sdispls,MPI_BYTE, &
+     &  recvbuf,self%rpcnts,self%rpdispls,MPI_BYTE,self%comm,mpierr)
+
+      pos=0
+      do i=1,self%recvs
+        call MPI_Unpack(recvbuf,self%recvbuf,pos,precv,1,self%recvparcels(i)%m,self%comm,mpierr)
+      enddo
+
+      end subroutine distribution_update_packunpack
+
       subroutine distribution_update_alt(self,vsend,vrecv,err)
       use mpi
       use iso_c_binding, only : c_loc,c_f_pointer
 
       class(distribution), intent(in)                    :: self
-      real, dimension(..), intent(inout), target, optional :: vsend
-      real, dimension(..), intent(inout), target, optional :: vrecv
+      real, dimension(..), allocatable, intent(inout), target, optional :: vsend
+      real, dimension(..), allocatable, intent(inout), target, optional :: vrecv
       integer, intent(out), optional                      :: err
 
       if (present(vsend).and.present(vrecv)) then
@@ -1574,7 +1651,7 @@ logical recursive function signs(d,n) result(signsr)
         logical :: check_subarray
                                                                         
         class(subarray), intent(in)                     :: self
-        real, dimension(..), intent(in)    :: v 
+        real, dimension(..), allocatable, intent(in)    :: v 
                                                                         
       integer           :: ndim
       integer status(MPI_STATUS_SIZE) 
@@ -1595,13 +1672,6 @@ logical recursive function signs(d,n) result(signsr)
          ierr=.false.
          return
       endif 
-
-!check contiguity of array
-      if (.not.is_contiguous(v)) then
-         if (verbose.gt.0)print*,"Array is not contiguous.."
-         ierr=.false.
-         return
-      endif
 
       allocate(lb(ndim),ub(ndim))
       lb=lbound(v)
@@ -1636,7 +1706,7 @@ logical recursive function signs(d,n) result(signsr)
         integer, parameter           :: ndim=3
                                                                         
         class(combined), intent(in)                         :: self
-        real, dimension(..), intent(in)    :: v 
+        real, dimension(..), allocatable, intent(in)    :: v 
                                                                         
       integer i,status(MPI_STATUS_SIZE) 
       logical ierr
@@ -1694,7 +1764,7 @@ logical recursive function signs(d,n) result(signsr)
       function check_parcel(self,v)
         logical :: check_parcel
         class(parcel),intent(in) :: self
-        real,dimension(..), intent(in) :: v
+        real,dimension(..), allocatable, intent(in) :: v
 
         call debug('check_parcel')
 
