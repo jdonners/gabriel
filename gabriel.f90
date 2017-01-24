@@ -144,7 +144,9 @@ module gabriel
 ! As a workaround, the user could call the three underlying routines directly.
 ! These should be private if the compiler works correctly.
           procedure :: update => distribution_update_alt           !< update the distribution
-          procedure :: update_packed => distribution_update_packunpack           !< update using pack/unpack
+          generic :: update_packed => distribution_update_packunpack_sendrecv,distribution_update_packunpack_bottom           !< update using pack/unpack
+          procedure,private :: distribution_update_packunpack_sendrecv
+          procedure,private :: distribution_update_packunpack_bottom
           procedure :: autocreate => distribution_autocreate   !< create autodistribution
           procedure :: transform => create_reshuffle_           !< create transformation
           procedure :: halo => distribution_halo               !< setup halo, but don't create
@@ -1535,7 +1537,59 @@ logical recursive function signs(d,n) result(signsr)
                    
       end subroutine distribution_update_sendrecv
 
-      subroutine distribution_update_packunpack(self,vsend,vrecv,err)
+      subroutine distribution_update_packunpack_bottom(self,err)
+      use mpi
+      use iso_c_binding, only : c_loc,c_f_pointer
+
+      class(distribution), intent(in)                    :: self
+      integer, intent(out), optional                      :: err
+
+      real,dimension(self%sendbuf) :: sendbuf
+      real,dimension(self%recvbuf) :: recvbuf
+      integer,dimension(self%sends) :: sdispls,scnts
+      integer,dimension(self%recvs) :: rdispls,rcnts
+      real,dimension(:),pointer :: psend,precv
+      integer mpierr,status(MPI_STATUS_SIZE)
+      integer i,pos
+
+      if (present(err)) err=0
+
+      call debug('distribution_update_packunpack_bottom')
+      if (check) then
+        do i=1,self%sends
+          if (isdebug()) print*,'i=',i
+          if (.not.self%sendparcels(i)%is_absolute()) then
+            call error(35,"Send parcel not absolute",err)
+            return
+          endif
+        enddo
+        do i=1,self%recvs
+          if (.not.self%recvparcels(i)%is_absolute()) then
+            call error(36,"Receive parcel not absolute",err)
+            return
+          endif
+        enddo
+      endif
+
+      pos=0
+      do i=1,self%sends
+        sdispls(i)=pos
+        call MPI_Pack(MPI_BOTTOM,1,self%sendparcels(i)%m,sendbuf,self%sendbuf,pos,self%comm,mpierr)
+        scnts(i)=pos-sdispls(i)
+      enddo
+
+      call MPI_Neighbor_alltoallv(sendbuf,scnts,sdispls,MPI_BYTE, &
+     &  recvbuf,self%rpcnts,self%rpdispls,MPI_BYTE,self%comm,mpierr)
+
+      pos=0
+      do i=1,self%recvs
+        call MPI_Unpack(recvbuf,self%recvbuf,pos,MPI_BOTTOM,1,self%recvparcels(i)%m,self%comm,mpierr)
+      enddo
+
+      end subroutine distribution_update_packunpack_bottom
+
+
+      subroutine distribution_update_packunpack_sendrecv(self,vsend,vrecv,err)
       use mpi
       use iso_c_binding, only : c_loc,c_f_pointer
 
@@ -1589,7 +1643,7 @@ logical recursive function signs(d,n) result(signsr)
         call MPI_Unpack(recvbuf,self%recvbuf,pos,precv,1,self%recvparcels(i)%m,self%comm,mpierr)
       enddo
 
-      end subroutine distribution_update_packunpack
+      end subroutine distribution_update_packunpack_sendrecv
 
       subroutine distribution_update_alt(self,vsend,vrecv,err)
       use mpi

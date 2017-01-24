@@ -38,6 +38,7 @@ program ex
   if(rank.eq.0)then
     write(output_unit,nml=halo_exchange)
     print*,'MPI size: ',mpisize
+    print*,'Using typed updates'
   endif
   if (vars.lt.1.or.vars.gt.4)then
     print*,'Vars should be between 1 and 4'
