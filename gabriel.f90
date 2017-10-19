@@ -3,7 +3,7 @@ module gabriel
 !***********************************************************************
 ! contains info for the message passing
 !-----------------------------------------------------------------------
-      use mpi, only : MPI_ADDRESS_KIND,MPI_DATATYPE_NULL, MPI_COMM_NULL
+      use mpi_f08, only : MPI_ADDRESS_KIND, MPI_Datatype, MPI_Comm
       implicit none 
 
       private
@@ -30,11 +30,12 @@ module gabriel
       logical :: check=.true.
       public :: gabriel_set_checking, gabriel_enable_checking, gabriel_disable_checking
 
-      integer :: realtype = MPI_DATATYPE_NULL
+      logical :: realtype_initialized = .false.
+      type(MPI_Datatype) :: realtype
 
 !> Class to define parcels
       type, public :: parcel
-        integer, private :: m=MPI_DATATYPE_NULL                   !< MPI type
+        type(MPI_Datatype), private :: m                                  !< MPI type
         logical, private :: initialized = .false.              !< is m a valid MPI type?
         logical, private :: absolute = .false.        !< is m an absolute MPI type (i.e. should it be used with MPI_BOTTOM)?
         class(parcel), pointer, private :: i            !< pointer to extended parcel type for verification (boundary checking)
@@ -71,7 +72,8 @@ module gabriel
 !> Type to describe a composition
       type, private :: composition
         private
-        integer                         :: comm=MPI_COMM_NULL          !< MPI communicator
+        TYPE(MPI_Comm)                    :: comm           !< MPI communicator
+        logical                           :: initialized=.false.
         contains
           procedure :: is_initialized => composition_isinitialized
           final :: composition_finalize                     !< Finalize a composition
@@ -110,8 +112,9 @@ module gabriel
 !> Type to define distribution
       type, public :: distribution
         private
-        integer :: comm_parent             !< parent communicator
-        integer :: comm=MPI_COMM_NULL      !< communicator
+        type(MPI_Comm) :: comm_parent             !< parent communicator
+        type(MPI_Comm) :: comm                    !< communicator
+        logical :: initialized=.false.
         integer :: commsize                    !< communicator size
         integer :: commrank                    !< communicator rank
         integer :: sends=0                 !< actual number of neighbors to send to
@@ -226,7 +229,7 @@ module gabriel
       end subroutine
 
       subroutine error(errcode,s,err)
-        use mpi
+        use mpi_f08
         use, intrinsic :: iso_fortran_env, only : stderr => error_unit
 
         integer, intent(in)            :: errcode
@@ -256,7 +259,7 @@ module gabriel
       subroutine create_subarray_bounds(self,lb,ub,starts,stops,subsizes,err)
 !! Create type to combine different parcels.
 !! This is used to communicate a subarray of a larger array and it takes upper- and lower bounds of the array
-        use mpi
+        use mpi_f08
 
         class(parcel)                                             :: self           !< parcel
         integer, intent(in), dimension(:)                       :: lb         !< lower bounds of subarray
@@ -338,8 +341,9 @@ module gabriel
           endif
 
 ! create type
-          if (realtype.eq.MPI_DATATYPE_NULL) then
+          if (.not.realtype_initialized) then
             call MPI_Type_create_f90_real(precision(dummyreal),exponent(dummyreal),realtype,mpierr)
+            realtype_initialized=.true.
           endif
           call MPI_Type_create_subarray(ndim,sub%sizes,sub%subsizes,sub%starts,    &
      &       MPI_ORDER_FORTRAN,realtype,self%m,mpierr)
@@ -353,7 +357,7 @@ module gabriel
       subroutine create_subarray(self,array,starts,stops,subsizes,err)
 !! Create type to combine different parcels.
 !! This is used to communicate a subarray of a larger array
-        use mpi
+        use mpi_f08
 
         class(parcel)                                           :: self           !< parcel
         real, dimension(..), intent(in)                         :: array          !< input array
@@ -376,14 +380,15 @@ module gabriel
 !> This is usually used to communicate different parts of the same variable
 !dox @relates gabriel::parcel
       subroutine create_combined(self,parcels,err)
-        use mpi
+        use mpi_f08
 
         class(parcel),intent(inout)            :: self
         type(parcel),dimension(:),intent(in)   :: parcels
         integer,intent(out),optional         :: err
 
         integer                  :: i,sz,mpierr
-        integer,allocatable,dimension(:) :: hh,ones
+        integer,allocatable,dimension(:) :: ones
+        type(MPI_Datatype),allocatable,dimension(:) :: hh
         integer(kind=MPI_ADDRESS_KIND),allocatable,dimension(:) :: zeroes
         integer nabs
 
@@ -438,7 +443,7 @@ module gabriel
       subroutine parcel_joined_init(self,n,err)
 ! The resulting parcel is based on absolute addresses, so it will be communicated
 ! with MPI_BOTTOM as both sending and receiving buffers.
-        use mpi
+        use mpi_f08
 
         class(parcel),intent(inout) :: self
         integer,intent(in)        :: n
@@ -487,23 +492,15 @@ module gabriel
       logical function distribution_isinitialized(d)
         class(distribution),intent(in) :: d
 
-        if (d%comm.eq.MPI_COMM_NULL) then
-          distribution_isinitialized=.false.
-        else
-          distribution_isinitialized=.true.
-        endif
+        distribution_isinitialized=d%initialized
 
       end function
 
       logical function composition_isinitialized(c)
         class(composition),intent(in) :: c
 
-        if (c%comm.eq.MPI_COMM_NULL) then
-          composition_isinitialized=.false.
-        else
-          composition_isinitialized=.true.
-        endif
-
+        composition_isinitialized=c%initialized
+        
       end function
 
 !> create a joined distribution
@@ -511,7 +508,7 @@ module gabriel
       subroutine distribution_joined(self,n,err)
 ! The resulting parcel is based on absolute addresses, so it will be communicated
 ! with MPI_BOTTOM as both sending and receiving buffers.
-        use mpi
+        use mpi_f08
 
         class(distribution),intent(inout) :: self
         integer,intent(in)        :: n
@@ -540,7 +537,7 @@ module gabriel
 !> add a variable to a joined parcel type
 !dox @relates gabriel::subarray
       subroutine distribution_joined_add(self,v,err)
-        use mpi
+        use mpi_f08
 
         class(distribution), intent(inout) :: self
         real, dimension(..), intent(in)    :: v
@@ -594,7 +591,7 @@ module gabriel
 !> Add a variable to a joined parcel type
 !dox @relates gabriel::subarray
       subroutine parcel_joined_add(self,v,err)
-        use mpi
+        use mpi_f08
 
         class(parcel), intent(inout) :: self
         real, dimension(..), intent(in)    :: v
@@ -629,7 +626,8 @@ module gabriel
 !dox @relates gabriel::distribution
       subroutine distribution_init(d,sends,recvs,comm,err)
         class(distribution), intent(out)                  :: d
-        integer, intent(in)                                :: sends,recvs,comm
+        integer, intent(in)                                :: sends,recvs
+        type(MPI_Comm), intent(in)                         :: comm
         integer, intent(out), optional                     :: err
 
         integer mpierr
@@ -657,7 +655,7 @@ module gabriel
 !> Add a receive to a distribution
 !dox @relates gabriel::distribution
       subroutine distribution_add_recv(d,rank,h,err)
-        use mpi
+        use mpi_f08
         class(distribution), intent(inout)                 :: d
         type(parcel), intent(in)                             :: h
         integer, intent(in)                                :: rank
@@ -684,7 +682,7 @@ module gabriel
 !> Add a send to a distribution
 !dox @relates gabriel::distribution
       subroutine distribution_add_send(d,rank,h,err)
-        use mpi
+        use mpi_f08
         class(distribution), intent(inout)                 :: d
         type(parcel), intent(in)                             :: h
         integer, intent(in)                                :: rank
@@ -713,13 +711,14 @@ module gabriel
 !> This call uses collective MPI routines.
 !dox @relates gabriel::distribution
       subroutine distribution_create(d,i,reorder,err)
-        use mpi
+        use mpi_f08
         class(distribution), intent(inout)           :: d             !< distribution type
-        integer, optional, intent(in)                 :: i            !< MPI_Info, default MPI_INFO_NULL
+        type(MPI_Info), optional, intent(in)                 :: i            !< MPI_Info, default MPI_INFO_NULL
         logical, optional, intent(in)                 :: reorder      !< allow to reorder ranks, default .true.
         integer, intent(out), optional                 :: err         !< error indicator
 
-        integer info,ierr
+        type(MPI_Info) :: info
+        integer ierr
         integer commsize
         logical mpi_reorder
         integer cnt,n
@@ -794,12 +793,12 @@ module gabriel
       end subroutine distribution_create
 
       subroutine box_initialize(comp,v,lower,upper,comm,offset,periodic,err)
-        use mpi
+        use mpi_f08
         class(box), intent(inout)            :: comp           !< Resulting box composition
         real, dimension(..), intent(in)   :: v    !< variable to create composition for
         integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
         integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
-        integer, intent(in)               :: comm              !< communicator
+        type(MPI_Comm), intent(in)               :: comm              !< communicator
         integer, dimension(:), intent(in), optional :: offset  !< offset of array indices in composition
         logical, dimension(:), intent(in), optional :: periodic  !< periodicity of dimensions in composition
         integer, intent(out), optional :: err  !< error indicator
@@ -868,6 +867,7 @@ module gabriel
           endif
           call MPI_Comm_free(comp%comm,mpierr)
           comp%comm=MPI_COMM_NULL
+          comp%initialized=.false.
           deallocate(comp%lb,comp%ub,comp%lower,comp%upper,comp%offset, &
           &  comp%lower_comp,comp%upper_comp,comp%periodic)
         endif
@@ -895,9 +895,8 @@ subroutine composition_finalize(comp)
 
         integer mpierr
         
-        if (comp%comm.ne.MPI_COMM_NULL) then
+        if (comp%initialized) then
           call MPI_Comm_free(comp%comm,mpierr)
-          comp%comm=MPI_COMM_NULL
         endif
 
 end subroutine composition_finalize
@@ -906,7 +905,7 @@ end subroutine composition_finalize
 !> This is a collective MPI call.
 !dox @relates gabriel::distribution
       subroutine distribution_halo(dist,comp,err)
-        use mpi
+        use mpi_f08
         class(distribution), intent(inout)          :: dist    !< Resulting distribution
         class(composition), intent(in)            :: comp    !< Input composition
         integer, intent(out), optional :: err  !< error indicator
@@ -924,7 +923,7 @@ end subroutine composition_finalize
 !> This is a collective MPI call.
 !dox @relates gabriel::distribution
       subroutine distribution_halo_box(dist,comp,err)
-        use mpi
+        use mpi_f08
         class(distribution), intent(inout)          :: dist    !< Resulting distribution
         class(box), intent(in)                      :: comp    !< Input composition
         integer, intent(out), optional :: err  !< error indicator
@@ -946,7 +945,8 @@ end subroutine composition_finalize
         integer,dimension(:,:),allocatable :: lbs,ubs
         integer,dimension(:),allocatable :: global_low,global_up
         logical,dimension(:),allocatable :: per
-        integer :: comm,commsize,mpierr,commrank
+        type(MPI_Comm) :: comm
+        integer :: commsize,mpierr,commrank
         integer :: i
         type(parcel) :: h
 
@@ -1123,12 +1123,12 @@ end subroutine composition_finalize
       end subroutine distribution_halo_box
 
       subroutine distribution_autocreate(d,v,lower,upper,comm,offset,periodic,err)
-        use mpi
+        use mpi_f08
         class(distribution), intent(inout)            :: d    !< Resulting distribution
         real, dimension(..), intent(in)   :: v    !< variable to create parcels for
         integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
         integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
-        integer, intent(in)               :: comm              !< communicator
+        type(MPI_Comm), intent(in)               :: comm              !< communicator
         integer, dimension(:), intent(in), optional :: offset  !< offset of array indices
         logical, dimension(:), intent(in), optional :: periodic       !< periodicity of global domain
         integer, intent(out), optional :: err  !< error indicator
@@ -1146,7 +1146,7 @@ end subroutine composition_finalize
 !> This is a collective MPI call.
 !dox @relates gabriel::distribution
       subroutine create_reshuffle_(d,cfrom,cto,err)
-        use mpi
+        use mpi_f08
         class(distribution), intent(inout)            :: d    !< Resulting distribution
         class(composition),intent(in)                 :: cfrom,cto !< Compositions to transform from and to 
         integer, intent(out), optional :: err  !< error indicator
@@ -1174,7 +1174,8 @@ end subroutine composition_finalize
       end subroutine create_reshuffle_
       
       subroutine create_reshuffle_box(d,cfrom,cto,err)
-        use mpi
+        use mpi_f08
+        implicit none
         class(distribution), intent(inout)            :: d     !< Resulting distribution
         class(box), intent(in)                        :: cfrom  !< Source composition to transform
         class(composition), intent(in)                :: cto    !< Target composition to transform
@@ -1196,7 +1197,8 @@ end subroutine composition_finalize
         integer,dimension(:,:),allocatable :: to_lbs,to_ubs
         integer,dimension(:),allocatable :: global_low,global_up
         logical,dimension(:),allocatable :: per
-        integer :: comm,commsize,mpierr,commrank
+        type(MPI_Comm) :: comm
+        integer :: commsize,mpierr,commrank
         integer :: i
         type(parcel) :: h
 
@@ -1401,7 +1403,7 @@ logical recursive function signs(d,n) result(signsr)
   end function
 
       subroutine MPIcheck(err)
-        use mpi
+        use mpi_f08
         integer, intent(out),optional :: err
         logical initialized,finalized
         integer ierr
@@ -1423,8 +1425,7 @@ logical recursive function signs(d,n) result(signsr)
 !> Update a distribution with one array as source and destination
 !dox @relates gabriel::distribution
       subroutine distribution_update_single(self,v,err)
-        use mpi
-        use iso_c_binding, only : c_loc,c_f_pointer
+        use mpi_f08
  
         real, dimension(..), intent(inout), target :: v
         class(distribution), intent(in)                    :: self
@@ -1441,8 +1442,7 @@ logical recursive function signs(d,n) result(signsr)
 !> Update a distribution with types that use absolute addressing
 !dox @relates gabriel::distribution
       subroutine distribution_update_bottom(self,err)
-      use mpi
-      use iso_c_binding, only : c_loc,c_f_pointer
+      use mpi_f08
 
       class(distribution), intent(in)                    :: self
       integer, intent(out), optional                      :: err
@@ -1476,15 +1476,13 @@ logical recursive function signs(d,n) result(signsr)
 
 !> Update a distribution with separate arrays as source and destination
       subroutine distribution_update_sendrecv(self,vsend,vrecv,err)
-      use mpi
-      use iso_c_binding, only : c_loc,c_f_pointer
+      use mpi_f08
 
       class(distribution), intent(in)                    :: self
       real, dimension(..), intent(in), target    :: vsend
       real, dimension(..), intent(inout), target :: vrecv
       integer, intent(out), optional                      :: err
 
-      real,dimension(:),pointer :: psend,precv
       integer mpierr,status(MPI_STATUS_SIZE)
       integer i
 
@@ -1507,16 +1505,13 @@ logical recursive function signs(d,n) result(signsr)
         enddo
       endif
       
-      call c_f_pointer(c_loc(vsend),psend,(/size(vsend)/))
-      call c_f_pointer(c_loc(vrecv),precv,(/size(vrecv)/))
-      call MPI_Neighbor_alltoallw(psend,self%sendcnts,self%senddispls,self%sendparcels%m, &
-     &  precv,self%recvcnts,self%recvdispls,self%recvparcels%m,self%comm,mpierr)
+      call MPI_Neighbor_alltoallw(vsend,self%sendcnts,self%senddispls,self%sendparcels%m, &
+     &  vrecv,self%recvcnts,self%recvdispls,self%recvparcels%m,self%comm,mpierr)
                    
       end subroutine distribution_update_sendrecv
 
       subroutine distribution_update_alt(self,vsend,vrecv,err)
-      use mpi
-      use iso_c_binding, only : c_loc,c_f_pointer
+      use mpi_f08
 
       class(distribution), intent(in)                    :: self
       real, dimension(..), intent(inout), target, optional :: vsend
@@ -1561,8 +1556,9 @@ logical recursive function signs(d,n) result(signsr)
 
         if (isdebug()) print*,'copy_parcel ',hin%initialized,hin%m
         hout%absolute=hin%absolute
-        if (hin%m.ne.MPI_DATATYPE_NULL) then
+        if (hin%initialized) then
           call MPI_Type_dup(hin%m,hout%m,mpierr)
+          hout%initialized=.true.
         endif
         if(associated(hin%i))allocate(hout%i,source=hin%i)
       end subroutine copy_parcel
@@ -1570,18 +1566,18 @@ logical recursive function signs(d,n) result(signsr)
 !> check subarray parcel
 !dox @private
       function check_subarray(self,v)
-        use mpi 
+        use mpi_f08 
         logical :: check_subarray
                                                                         
         class(subarray), intent(in)                     :: self
         real, dimension(..), intent(in)    :: v 
-                                                                        
+
       integer           :: ndim
       integer status(MPI_STATUS_SIZE) 
       logical ierr
 
       integer,dimension(:),allocatable :: lb,ub
-       
+      
       call debug('check_subarray')
       ierr=.true.      
                                                            
@@ -1597,11 +1593,11 @@ logical recursive function signs(d,n) result(signsr)
       endif 
 
 !check contiguity of array
-      if (.not.is_contiguous(v)) then
-         if (verbose.gt.0)print*,"Array is not contiguous.."
-         ierr=.false.
-         return
-      endif
+!      if (.not.is_contiguous(v)) then
+!         if (verbose.gt.0)print*,"Array is not contiguous.."
+!         ierr=.false.
+!         return
+!      endif
 
       allocate(lb(ndim),ub(ndim))
       lb=lbound(v)
@@ -1631,7 +1627,7 @@ logical recursive function signs(d,n) result(signsr)
 !> check subarray parcel
 !dox @private
       function check_combined(self,v)
-        use mpi 
+        use mpi_f08 
         logical  :: check_combined
         integer, parameter           :: ndim=3
                                                                         
@@ -1655,7 +1651,7 @@ logical recursive function signs(d,n) result(signsr)
 !> is parcel absolute?
 !dox @private
       function parcel_is_absolute(self)
-        use mpi 
+        use mpi_f08 
         logical  :: parcel_is_absolute
 
         class(parcel), intent(in)                         :: self
@@ -1669,7 +1665,7 @@ logical recursive function signs(d,n) result(signsr)
 !> Commit a parcel. If the object is a joined parcel, it first creates the derived datatype.
 !dox @relates gabriel::parcel
       subroutine parcel_commit(self,err) 
-        use mpi 
+        use mpi_f08 
                                                                         
         class(parcel),intent(inout) :: self
         integer, intent(out), optional :: err
@@ -1717,7 +1713,7 @@ logical recursive function signs(d,n) result(signsr)
 !dox @public
       function mpitype(self)
         class(parcel), intent(in) :: self
-        integer :: mpitype
+        type(MPI_Datatype) :: mpitype
         integer :: mpierr
 
        call MPI_Type_dup(self%m,mpitype,mpierr)
