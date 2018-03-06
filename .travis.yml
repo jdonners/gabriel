@@ -1,7 +1,7 @@
 language: c
 
 before_install:
-  - sudo apt-get install gfortran
+  - sudo apt-get install gfortran libopenmpi-dev
 
 script: autoreconf && ./configure && make && make check
 
