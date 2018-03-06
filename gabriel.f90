@@ -231,14 +231,21 @@ module gabriel
       subroutine error(errcode,s,err)
         use mpi_f08
         use, intrinsic :: iso_fortran_env, only : stderr => error_unit
-
+!        use funwind
+        
         integer, intent(in)            :: errcode
         character(len=*), optional     :: s
         integer, intent(out), optional :: err
 
         integer                        :: mpierr
 
+!        interface
+!           subroutine show_backtrace() bind(C,name="show_backtrace")
+!           end subroutine
+!        end interface
+
         if (iserror().and.present(s)) write(stderr,*) 'Error: ',s
+!        call show_backtrace
         if (.not.present(err)) then
           call MPI_Abort(MPI_COMM_WORLD,errcode,mpierr)
         else
@@ -360,7 +367,7 @@ module gabriel
         use mpi_f08
 
         class(parcel)                                           :: self           !< parcel
-        real, dimension(..), intent(in)                         :: array          !< input array
+        real, dimension(..), allocatable, intent(in)                         :: array          !< input array
         integer, intent(in), dimension(:)                       :: starts         !< starting indices of subarray
         integer, intent(in), dimension(:), optional             :: stops          !< stopping indices of subarray
         integer, intent(in), dimension(:), optional             :: subsizes       !< subsizes of subarray
@@ -540,7 +547,7 @@ module gabriel
         use mpi_f08
 
         class(distribution), intent(inout) :: self
-        real, dimension(..), intent(in)    :: v
+        real, dimension(..), allocatable, intent(in)    :: v
         integer, intent(out), optional :: err
                                                                         
         integer i
@@ -594,7 +601,7 @@ module gabriel
         use mpi_f08
 
         class(parcel), intent(inout) :: self
-        real, dimension(..), intent(in)    :: v
+        real, dimension(..), allocatable, intent(in)    :: v
         integer, intent(out), optional :: err
                                                                         
         integer mpierr,n 
@@ -795,7 +802,7 @@ module gabriel
       subroutine box_initialize(comp,v,lower,upper,comm,offset,periodic,err)
         use mpi_f08
         class(box), intent(inout)            :: comp           !< Resulting box composition
-        real, dimension(..), intent(in)   :: v    !< variable to create composition for
+        real, dimension(..), allocatable, intent(in)   :: v    !< variable to create composition for
         integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
         integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
         type(MPI_Comm), intent(in)               :: comm              !< communicator
@@ -888,6 +895,8 @@ module gabriel
         call MPI_Allreduce(comp%lower,comp%lower_comp,r,MPI_INTEGER,MPI_MIN,comm,mpierr)
         call MPI_Allreduce(comp%upper,comp%upper_comp,r,MPI_INTEGER,MPI_MAX,comm,mpierr)
 
+        comp%initialized=.true.
+        
 end subroutine box_initialize
 
 subroutine composition_finalize(comp)
@@ -1125,7 +1134,7 @@ end subroutine composition_finalize
       subroutine distribution_autocreate(d,v,lower,upper,comm,offset,periodic,err)
         use mpi_f08
         class(distribution), intent(inout)            :: d    !< Resulting distribution
-        real, dimension(..), intent(in)   :: v    !< variable to create parcels for
+        real, dimension(..), allocatable, intent(in)   :: v    !< variable to create parcels for
         integer, dimension(:), intent(in) :: lower             !< lower bound of active domain
         integer, dimension(:), intent(in) :: upper             !< upper bound of active domain
         type(MPI_Comm), intent(in)               :: comm              !< communicator
@@ -1427,7 +1436,7 @@ logical recursive function signs(d,n) result(signsr)
       subroutine distribution_update_single(self,v,err)
         use mpi_f08
  
-        real, dimension(..), intent(inout), target :: v
+        real, dimension(..), allocatable, intent(inout), target :: v
         class(distribution), intent(in)                    :: self
         integer, intent(out), optional                      :: err
 
@@ -1479,8 +1488,8 @@ logical recursive function signs(d,n) result(signsr)
       use mpi_f08
 
       class(distribution), intent(in)                    :: self
-      real, dimension(..), intent(in), target    :: vsend
-      real, dimension(..), intent(inout), target :: vrecv
+      real, dimension(..), allocatable, intent(in), target    :: vsend
+      real, dimension(..), allocatable, intent(inout), target :: vrecv
       integer, intent(out), optional                      :: err
 
       integer mpierr,status(MPI_STATUS_SIZE)
@@ -1514,8 +1523,8 @@ logical recursive function signs(d,n) result(signsr)
       use mpi_f08
 
       class(distribution), intent(in)                    :: self
-      real, dimension(..), intent(inout), target, optional :: vsend
-      real, dimension(..), intent(inout), target, optional :: vrecv
+      real, dimension(..), allocatable, intent(inout), target, optional :: vsend
+      real, dimension(..), allocatable, intent(inout), target, optional :: vrecv
       integer, intent(out), optional                      :: err
 
       if (present(vsend).and.present(vrecv)) then
@@ -1570,7 +1579,7 @@ logical recursive function signs(d,n) result(signsr)
         logical :: check_subarray
                                                                         
         class(subarray), intent(in)                     :: self
-        real, dimension(..), intent(in)    :: v 
+        real, dimension(..), allocatable, intent(in)    :: v 
 
       integer           :: ndim
       integer status(MPI_STATUS_SIZE) 
@@ -1632,7 +1641,7 @@ logical recursive function signs(d,n) result(signsr)
         integer, parameter           :: ndim=3
                                                                         
         class(combined), intent(in)                         :: self
-        real, dimension(..), intent(in)    :: v 
+        real, dimension(..), allocatable, intent(in)    :: v 
                                                                         
       integer i,status(MPI_STATUS_SIZE) 
       logical ierr
@@ -1690,7 +1699,7 @@ logical recursive function signs(d,n) result(signsr)
       function check_parcel(self,v)
         logical :: check_parcel
         class(parcel),intent(in) :: self
-        real,dimension(..), intent(in) :: v
+        real,dimension(..), allocatable, intent(in) :: v
 
         call debug('check_parcel')
 

@@ -1,7 +1,7 @@
 program ex1d
 
   use gabriel
-  use MPI
+  use MPI_f08
   implicit none
 
   integer,parameter :: n=10

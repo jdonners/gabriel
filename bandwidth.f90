@@ -1,7 +1,7 @@
 program ex
 
   use gabriel
-  use MPI
+  use MPI_f08
   use iso_fortran_env
   implicit none
 
@@ -18,7 +18,8 @@ program ex
   real,dimension(:,:,:),allocatable :: a,b,c,e
   real :: dummyreal
   integer ierr,rank,right,left,mpisize,i,j,k
-  integer hor,ver,pow2,s,realsize,realtype
+  integer hor,ver,pow2,s,realsize
+  type(MPI_Datatype) :: realtype
   real*8 t0, t1,t,datasize
 
   type(box) :: bo
@@ -26,6 +27,7 @@ program ex
   call MPI_Init(ierr)
   call MPI_Comm_rank(MPI_COMM_WORLD,rank,ierr)
   call MPI_Comm_size(MPI_COMM_WORLD,mpisize,ierr)
+
   right=rank+1
   left=rank-1
   if (right.ge.mpisize)right=0
@@ -63,7 +65,6 @@ program ex
   
   call bo%init(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,s/),MPI_COMM_WORLD,periodic=(/.true.,.true.,.true./))
   call d%halo(bo)
-!  call d%autocreate(a,(/hor*s,ver*s+1,1/),(/hor*s+s-1,ver*s+s,6/),MPI_COMM_WORLD,periodic=(/.true.,.false.,.false./))
   if(vars.ge.2) then
     call d%joined(vars)
     call d%joined_add(a)
